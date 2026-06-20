@@ -24,6 +24,7 @@ import { selectPrimaryBody } from "./primaryBody";
 import { rotateAttitude, thrustDirection } from "./attitude";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
+import { HUD } from "../ui/HUD";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -39,6 +40,7 @@ export class Game {
   private lastTime = 0;
   private readonly padHeight = 7; // half ship height so legs touch
   private phase: Phase = initialPhase();
+  private hud!: HUD;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -58,6 +60,7 @@ export class Game {
     this.ship.orientation = new Vec3(0, 1, 0);
 
     window.addEventListener("resize", () => this.renderer.resize());
+    this.hud = new HUD(document.getElementById("ui")!);
   }
 
   private stepSim(): void {
@@ -106,9 +109,26 @@ export class Game {
     this.shipGroup.quaternion.copy(this.quat);
     this.rig.setCockpit(shipVec, this.quat);
 
+    this.updateHud();
     this.renderer.render();
     requestAnimationFrame(this.frame);
   };
+
+  private initialFuel = 15000;
+
+  private updateHud(): void {
+    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    const vUp = this.ship.velocity.dot(pb.up);
+    this.hud.update({
+      phase: this.phase,
+      altitude: pb.altitude,
+      speed: this.ship.velocity.length(),
+      verticalSpeed: vUp,
+      fuelFraction: this.ship.fuelMass / this.initialFuel,
+      throttle: this.ship.throttle,
+      warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
+    });
+  }
 
   start(): void {
     requestAnimationFrame(this.frame);

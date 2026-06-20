@@ -1,0 +1,5 @@
+#ui { position: absolute; inset: 0; pointer-events: none; font-family: "Courier New", monospace; color: #9cf; }
+#hud { position: absolute; left: 16px; bottom: 16px; font-size: 14px; line-height: 1.5;
+       text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
+#hud .warn { color: #f55; font-weight: bold; }
+#hud .row b { color: #cef; }
