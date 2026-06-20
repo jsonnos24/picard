@@ -15,10 +15,27 @@ function fmt(n: number): string {
 
 export class HUD {
   private readonly el: HTMLDivElement;
+  private marker?: HTMLDivElement;
+
   constructor(root: HTMLElement) {
     this.el = document.createElement("div");
     this.el.id = "hud";
     root.appendChild(this.el);
+  }
+
+  setMarker(label: string, x: number, y: number, onScreen: boolean): void {
+    if (!this.marker) {
+      this.marker = document.createElement("div");
+      this.marker.className = "marker";
+      this.el.parentElement!.appendChild(this.marker);
+    }
+    this.marker.style.left = `${x * 100}%`;
+    this.marker.style.top = `${y * 100}%`;
+    this.marker.textContent = onScreen ? `⊕ ${label}` : `➤ ${label}`;
+  }
+
+  hideMarker(): void {
+    if (this.marker) this.marker.textContent = "";
   }
 
   update(s: HudState): void {

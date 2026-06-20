@@ -10,3 +10,5 @@
 #navmap.open { display: block; }
 #navmap canvas { width: 100%; height: 100%; cursor: crosshair; }
 #navmap .title { position: absolute; top: 6px; left: 10px; color: #9cf; font: 12px monospace; }
+#ui .marker { position: absolute; transform: translate(-50%,-50%); color: #6f6;
+              font: 13px monospace; text-shadow: 0 0 4px #000; white-space: nowrap; }

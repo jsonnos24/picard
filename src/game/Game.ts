@@ -29,6 +29,7 @@ import { HUD } from "../ui/HUD";
 import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
+import { projectMarker } from "./markers";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -135,6 +136,7 @@ export class Game {
     this.navmap.update(this.ship.position);
     this.warpFx.update(dt, this.renderer.camera.position);
     this.updateHud();
+    this.updateMarker();
     this.renderer.render();
     requestAnimationFrame(this.frame);
   };
@@ -153,6 +155,19 @@ export class Game {
       throttle: this.ship.throttle,
       warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
     });
+  }
+
+  private updateMarker(): void {
+    const targetName = this.navmap.targetName;
+    if (targetName) {
+      const target = this.bodies.find((b) => b.name === targetName)!;
+      const r = toRender(this.fo, target.position);
+      const m = projectMarker(new THREE.Vector3(r.x, r.y, r.z), this.renderer.camera);
+      const dist = target.position.sub(this.ship.position).length();
+      this.hud.setMarker(`${targetName} ${(dist / 1000).toFixed(0)} km`, m.x, m.y, m.onScreen);
+    } else {
+      this.hud.hideMarker();
+    }
   }
 
   private snapToSurface(body: Body, up: Vec3, contact: number): void {
