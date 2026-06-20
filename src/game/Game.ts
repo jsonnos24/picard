@@ -24,6 +24,8 @@ import { selectPrimaryBody } from "./primaryBody";
 import { rotateAttitude, thrustDirection } from "./attitude";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
+import { evaluateTouchdown } from "./landing";
+import { transition } from "../sim/GameState";
 import { HUD } from "../ui/HUD";
 
 export class Game {
@@ -91,6 +93,19 @@ export class Game {
       primaryName: pb.body.name,
       launched: pb.altitude > LAUNCH_CLEAR,
     });
+
+    // Moon touchdown / crash detection while Descending.
+    if (this.phase === "Descending") {
+      const vUp = this.ship.velocity.dot(pb.up);
+      const tilt = Math.acos(Math.max(-1, Math.min(1, this.ship.orientation.normalize().dot(pb.up))));
+      const result = evaluateTouchdown(pb.altitude, vUp, tilt, this.padHeight);
+      if (result === "landed") {
+        this.snapToSurface(pb.body, pb.up, this.padHeight);
+        this.phase = transition("Descending", "LandedMoon");
+      } else if (result === "crash") {
+        this.resetToPad();
+      }
+    }
   }
 
   private frame = (t: number): void => {
@@ -128,6 +143,19 @@ export class Game {
       throttle: this.ship.throttle,
       warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
     });
+  }
+
+  private snapToSurface(body: Body, up: Vec3, contact: number): void {
+    this.ship.position = body.position.add(up.scale(body.radius + contact));
+    this.ship.velocity = Vec3.zero();
+  }
+
+  private resetToPad(): void {
+    const earth = this.bodies[0];
+    this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
+    this.ship.orientation = new Vec3(0, 1, 0);
+    this.quat = new THREE.Quaternion();
+    this.phase = initialPhase();
   }
 
   start(): void {
