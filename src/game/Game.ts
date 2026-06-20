@@ -171,6 +171,7 @@ export class Game {
   private doWarp(): void {
     const name = this.navmap.targetName;
     if (!name) return;
+    if (this.phase === "OnFoot") return;
     const target = this.bodies.find((b) => b.name === name);
     if (!target) return;
     this.ship = warpTo(this.ship, target);
@@ -181,10 +182,7 @@ export class Game {
       new THREE.Vector3(o.x, o.y, o.z).normalize(),
     );
     this.warpFx.play();
-    if (this.phase === "InSpace" || this.phase === "Launching" || this.phase === "LandedEarth") {
-      // ensure we're in a flight phase after warp
-      this.phase = "InSpace";
-    }
+    this.phase = "InSpace";
   }
 
   start(): void {
