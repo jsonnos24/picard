@@ -15,6 +15,7 @@ import { verletStep } from "../sim/integrator";
 import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
 import { Vec3 } from "../sim/Vec3";
+import { FIXED_DT } from "../sim/constants";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -27,6 +28,7 @@ export class Game {
   private fo: FloatingOrigin;
   private tc: TimeControl;
   private lastTime = 0;
+  private readonly padHeight = 7; // half ship height so legs touch
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -39,8 +41,7 @@ export class Game {
 
     // Spawn on Earth's "north pole" pad (+Y), resting on the surface.
     const earth = this.bodies[0];
-    const padHeight = 7; // half ship height so legs touch
-    this.ship = createSpacecraft(new Vec3(0, earth.radius + padHeight, 0));
+    this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
     this.ship.orientation = new Vec3(0, 1, 0);
 
     window.addEventListener("resize", () => this.renderer.resize());
@@ -49,16 +50,16 @@ export class Game {
   private stepSim(): void {
     // Rebuild the accel closure each step (it snapshots the ship).
     const accel = shipAccelFn(this.ship, this.bodies);
-    const next = verletStep(toMotionState(this.ship), 1 / 60, accel);
+    const next = verletStep(toMotionState(this.ship), FIXED_DT, accel);
     this.ship = applyMotionState(this.ship, next);
 
     // Landed-hold placeholder: until launch logic (Task 7), pin the ship on the pad.
     const earth = this.bodies[0];
     const up = this.ship.position.sub(earth.position);
     const alt = up.length() - earth.radius;
-    if (alt < 7) {
+    if (alt < this.padHeight) {
       const n = up.normalize();
-      this.ship.position = earth.position.add(n.scale(earth.radius + 7));
+      this.ship.position = earth.position.add(n.scale(earth.radius + this.padHeight));
       this.ship.velocity = Vec3.zero();
     }
   }
