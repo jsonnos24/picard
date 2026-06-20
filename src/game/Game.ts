@@ -29,6 +29,7 @@ import { HUD } from "../ui/HUD";
 import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
+import { createDust } from "../render/scene/dust";
 import { projectMarker } from "./markers";
 import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
 import { createAstronaut3D } from "../render/scene/astronaut";
@@ -52,6 +53,7 @@ export class Game {
   private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
+  private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -75,6 +77,13 @@ export class Game {
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
     this.warpFx = createWarpEffect(this.renderer.scene);
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;
+
+    this.dust = createDust(this.renderer.scene);
+    const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
+    canvasEl.addEventListener("click", () => canvasEl.requestPointerLock());
+    window.addEventListener("mousemove", (e) => {
+      if (document.pointerLockElement) this.rig.addLook(e.movementX, e.movementY);
+    });
   }
 
   private stepSim(): void {
@@ -132,6 +141,8 @@ export class Game {
       if (result === "landed") {
         this.snapToSurface(pb.body, pb.up, this.padHeight);
         this.phase = transition("Descending", "LandedMoon");
+        const r = toRender(this.fo, this.ship.position);
+        this.dust.puff(new THREE.Vector3(r.x, r.y, r.z));
       } else if (result === "crash") {
         this.resetToPad();
       }
@@ -144,6 +155,8 @@ export class Game {
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
     if (this.input.consumePressed("warp")) this.doWarp();
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
+    if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
+    this.dust.update(dt);
     const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
     this.tc = next;
     for (let i = 0; i < steps; i++) this.stepSim();
