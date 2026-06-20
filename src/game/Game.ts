@@ -26,6 +26,9 @@ import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
+import { NavMap } from "../ui/NavMap";
+import { warpTo } from "../sim/WarpDrive";
+import { createWarpEffect } from "../render/scene/warpEffect";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -42,6 +45,8 @@ export class Game {
   private readonly padHeight = 7; // half ship height so legs touch
   private phase: Phase = initialPhase();
   private hud!: HUD;
+  private navmap!: NavMap;
+  private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -62,6 +67,8 @@ export class Game {
 
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
+    this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
+    this.warpFx = createWarpEffect(this.renderer.scene);
   }
 
   private stepSim(): void {
@@ -110,6 +117,8 @@ export class Game {
   private frame = (t: number): void => {
     const dt = this.lastTime === 0 ? 0 : (t - this.lastTime) / 1000;
     this.lastTime = t;
+    if (this.input.consumePressed("openMap")) this.navmap.toggle();
+    if (this.input.consumePressed("warp")) this.doWarp();
     const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
     this.tc = next;
     for (let i = 0; i < steps; i++) this.stepSim();
@@ -123,6 +132,8 @@ export class Game {
     this.shipGroup.quaternion.copy(this.quat);
     this.rig.setCockpit(shipVec, this.quat);
 
+    this.navmap.update(this.ship.position);
+    this.warpFx.update(dt, this.renderer.camera.position);
     this.updateHud();
     this.renderer.render();
     requestAnimationFrame(this.frame);
@@ -155,6 +166,25 @@ export class Game {
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
     this.phase = initialPhase();
+  }
+
+  private doWarp(): void {
+    const name = this.navmap.targetName;
+    if (!name) return;
+    const target = this.bodies.find((b) => b.name === name);
+    if (!target) return;
+    this.ship = warpTo(this.ship, target);
+    // align orientation quaternion with the new orientation (point at target)
+    const o = this.ship.orientation;
+    this.quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(o.x, o.y, o.z).normalize(),
+    );
+    this.warpFx.play();
+    if (this.phase === "InSpace" || this.phase === "Launching" || this.phase === "LandedEarth") {
+      // ensure we're in a flight phase after warp
+      this.phase = "InSpace";
+    }
   }
 
   start(): void {

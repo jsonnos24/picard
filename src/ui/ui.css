@@ -3,3 +3,10 @@
        text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
 #hud .warn { color: #f55; font-weight: bold; }
 #hud .row b { color: #cef; }
+
+#navmap { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+          width: 480px; height: 360px; background: rgba(0,0,20,0.85); border: 1px solid #3a6;
+          pointer-events: auto; display: none; }
+#navmap.open { display: block; }
+#navmap canvas { width: 100%; height: 100%; cursor: crosshair; }
+#navmap .title { position: absolute; top: 6px; left: 10px; color: #9cf; font: 12px monospace; }
