@@ -1,4 +1,5 @@
 import { Vec3 } from "./Vec3";
+import { MotionState } from "./integrator";
 
 export interface Spacecraft {
   position: Vec3;
@@ -39,4 +40,12 @@ export function burnFuel(s: Spacecraft, dt: number): Spacecraft {
   const mdot = (s.throttle * s.maxThrust) / s.exhaustVelocity;
   const newFuel = Math.max(0, s.fuelMass - mdot * dt);
   return { ...s, fuelMass: newFuel };
+}
+
+export function toMotionState(s: Spacecraft): MotionState {
+  return { position: s.position, velocity: s.velocity };
+}
+
+export function applyMotionState(s: Spacecraft, ms: MotionState): Spacecraft {
+  return { ...s, position: ms.position, velocity: ms.velocity };
 }
