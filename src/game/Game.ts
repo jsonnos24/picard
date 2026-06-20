@@ -178,6 +178,9 @@ export class Game {
     const shipVec = new THREE.Vector3(shipRender.x, shipRender.y, shipRender.z);
     this.shipGroup.position.copy(shipVec);
     this.shipGroup.quaternion.copy(this.quat);
+    // First-person cockpit: hide our own exterior so it doesn't fill the view.
+    // Show the lander only when we've stepped out (to look back at it).
+    this.shipGroup.visible = this.phase === "OnFoot";
 
     if (this.phase === "OnFoot" && this.astronaut) {
       const r = toRender(this.fo, this.astronaut.position);
@@ -270,8 +273,13 @@ export class Game {
   private toggleExit(): void {
     if (this.phase === "LandedMoon" && !this.astronaut) {
       const pb = selectPrimaryBody(this.ship.position, this.bodies);
-      // spawn just beside the lander on the surface
-      const start = pb.body.position.add(pb.up.scale(pb.body.radius + 1.2));
+      // Spawn a few metres to the side of the lander (offset along a surface tangent)
+      // so the astronaut can turn and see the lander rather than spawning inside it.
+      const ref = Math.abs(pb.up.x) > 0.9 ? new Vec3(0, 0, 1) : new Vec3(1, 0, 0);
+      const tangent = ref.sub(pb.up.scale(ref.dot(pb.up))).normalize();
+      const start = pb.body.position
+        .add(pb.up.scale(pb.body.radius + 1.2))
+        .add(tangent.scale(10));
       this.astronaut = createAstronaut(start);
       this.astronaut.onGround = true;
       this.astronautGroup.visible = true;
