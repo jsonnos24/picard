@@ -19,10 +19,10 @@ export function createSpacecraft(position: Vec3): Spacecraft {
     velocity: Vec3.zero(),
     orientation: new Vec3(0, 1, 0),
     dryMass: 5000,
-    fuelMass: 15000,
+    fuelMass: 30000, // generous delta-v margin for launch + a powered descent/landing
     maxThrust: 1.2e6, // N — strong enough to launch off Earth
     throttle: 0,
-    exhaustVelocity: 3000, // m/s
+    exhaustVelocity: 3500, // m/s
   };
 }
 

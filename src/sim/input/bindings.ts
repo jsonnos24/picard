@@ -18,7 +18,8 @@ export type Intent =
   | "walkRight"
   | "jump"
   | "warpFaster"
-  | "warpSlower";
+  | "warpSlower"
+  | "landingAssist";
 
 export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   KeyW: ["throttleUp", "walkForward"],
@@ -36,4 +37,5 @@ export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   KeyC: ["toggleCamera"],
   Period: ["warpFaster"], // ">" steps time-warp up
   Comma: ["warpSlower"], // "<" steps time-warp down
+  KeyL: ["landingAssist"], // toggle auto-descent / soft-landing assist
 };

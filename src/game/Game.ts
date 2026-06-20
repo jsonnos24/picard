@@ -11,8 +11,10 @@ import {
   applyMotionState,
   burnFuel,
   thrustAccel as shipThrustAccel,
+  totalMass,
 } from "../sim/Spacecraft";
 import { shipAccelFn } from "../sim/forces";
+import { gravityAccel } from "../sim/gravity";
 import { verletStep } from "../sim/integrator";
 import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
@@ -50,6 +52,7 @@ export class Game {
   private readonly padHeight = 7; // half ship height so legs touch
   private phase: Phase = initialPhase();
   private missionElapsed = 0; // simulated seconds since leaving the Earth pad
+  private assistOn = false; // landing assist: auto-orient upright + descent-rate limiter
   private static readonly WARP_LEVELS = [1, 2, 4, 6, 8];
   private hud!: HUD;
   private navmap!: NavMap;
@@ -114,10 +117,15 @@ export class Game {
     }
 
     const dt = FIXED_DT;
-    // Attitude + throttle from input.
-    this.quat = rotateAttitude(this.quat, this.input, dt);
-    this.ship.throttle = nextThrottle(this.ship.throttle, this.input, dt);
-    this.ship.orientation = thrustDirection(this.quat);
+    if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
+      // Landing assist drives orientation + throttle this step.
+      this.applyLandingAssist();
+    } else {
+      // Attitude + throttle from input.
+      this.quat = rotateAttitude(this.quat, this.input, dt);
+      this.ship.throttle = nextThrottle(this.ship.throttle, this.input, dt);
+      this.ship.orientation = thrustDirection(this.quat);
+    }
 
     const accel = shipAccelFn(this.ship, this.bodies);
     const next = verletStep(toMotionState(this.ship), dt, accel);
@@ -152,11 +160,56 @@ export class Game {
       if (result === "landed") {
         this.snapToSurface(pb.body, pb.up, this.padHeight);
         this.phase = transition("Descending", "LandedMoon");
+        this.assistOn = false;
+        this.ship.throttle = 0;
         const r = toRender(this.fo, this.ship.position);
         this.dust.puff(new THREE.Vector3(r.x, r.y, r.z));
       } else if (result === "crash") {
         this.resetToPad();
       }
+    }
+  }
+
+  private setOrient(dir: Vec3): void {
+    this.ship.orientation = dir;
+    this.quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(dir.x, dir.y, dir.z).normalize(),
+    );
+  }
+
+  // Landing assist (auto-descent + soft touchdown). Two phases driven by a
+  // "safe speed" = the fastest descent we can still arrest before the surface:
+  //   safeSpeed = sqrt(2 * aDec * distanceToSurface).
+  // If we're slower than that, thrust toward the planet to descend faster;
+  // otherwise thrust away to brake — which naturally eases to a gentle, upright
+  // (tilt 0) touchdown.
+  private applyLandingAssist(): void {
+    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    const vUp = this.ship.velocity.dot(pb.up);
+    const speed = Math.max(0, -vUp); // descent speed (m/s)
+    const gLocal = gravityAccel(this.ship.position, this.bodies).length();
+    const aMax = this.ship.maxThrust / totalMass(this.ship);
+    const aDec = Math.max(0.5, aMax - gLocal); // net deceleration available, engine up
+    const distToGo = Math.max(0, pb.altitude - this.padHeight);
+    // Altitude-aware target: half the arrestable speed (always leaves margin to stop
+    // before the surface), plus a modest cap so we don't spend delta-v overspeeding.
+    let targetSpeed = Math.min(Math.sqrt(2 * aDec * distToGo) * 0.5, 1500);
+    // Force a slow, gentle final approach so touchdown is well under the safe limit.
+    if (pb.altitude < 400) targetSpeed = Math.min(targetSpeed, 15);
+    if (pb.altitude < 80) targetSpeed = Math.min(targetSpeed, 3);
+
+    if (speed < targetSpeed - 8 && pb.altitude > this.padHeight + 50) {
+      // Build descent speed toward the target: engine toward planet (coast near target).
+      this.setOrient(pb.up.scale(-1));
+      this.ship.throttle = Math.max(0, Math.min(0.5, (targetSpeed - speed) * 0.02));
+    } else {
+      // Brake / hold: engine away from the planet, track the shrinking safe speed
+      // down to a gentle, upright touchdown.
+      this.setOrient(pb.up);
+      const targetVS = -Math.max(2, targetSpeed);
+      const desiredAccel = (targetVS - vUp) * 2.0;
+      this.ship.throttle = Math.max(0, Math.min(1, (desiredAccel + gLocal) / aMax));
     }
   }
 
@@ -169,6 +222,7 @@ export class Game {
     if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
     if (this.input.consumePressed("warpFaster")) this.stepTimeWarp(1);
     if (this.input.consumePressed("warpSlower")) this.stepTimeWarp(-1);
+    if (this.input.consumePressed("landingAssist")) this.assistOn = !this.assistOn;
     // Time-warp only while cruising in space; force x1 otherwise so you can't
     // fast-forward into a launch/descent/landing.
     if (this.phase !== "InSpace" && this.tc.timeScale !== 1) {
@@ -242,6 +296,7 @@ export class Game {
       warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
       timeScale: this.tc.timeScale,
       missionSeconds: this.missionElapsed,
+      assistOn: this.assistOn,
     });
   }
 
@@ -271,6 +326,7 @@ export class Game {
     this.phase = initialPhase();
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };
+    this.assistOn = false;
   }
 
   // Cycle the time-warp multiplier through WARP_LEVELS (only meaningful in space;

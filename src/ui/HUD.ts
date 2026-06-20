@@ -8,6 +8,7 @@ export interface HudState {
   warning: string | null;
   timeScale: number; // 1 = real time; 2/4/6/8 = fast-forward
   missionSeconds: number; // simulated seconds since leaving Earth
+  assistOn: boolean; // landing assist engaged
 }
 
 function fmt(n: number): string {
@@ -73,6 +74,7 @@ export class HUD {
       `<div class="row">THR <b>${(s.throttle * 100).toFixed(0)}%</b></div>` +
       `<div class="row">MET <b>${fmtMissionTime(s.missionSeconds)}</b></div>` +
       (s.timeScale > 1 ? `<div class="row warp">▶▶ WARP x${s.timeScale}</div>` : "") +
+      (s.assistOn ? `<div class="row warp">🛬 LANDING ASSIST</div>` : "") +
       (s.warning ? `<div class="row warn">${s.warning}</div>` : "");
   }
 }
