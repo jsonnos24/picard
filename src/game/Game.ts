@@ -71,6 +71,7 @@ export class Game {
     const earth = this.bodies[0];
     this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
     this.ship.orientation = new Vec3(0, 1, 0);
+    this.initialFuel = this.ship.fuelMass;
 
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
@@ -117,11 +118,14 @@ export class Game {
     this.ship = burnFuel(this.ship, dt);
 
     // Landed hold: pin to the surface until thrust can beat gravity.
+    // Must NOT run during Descending so Moon crash detection reads real velocity.
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
     const thrustMag = shipThrustAccel(this.ship).length();
-    if (pb.altitude < this.padHeight && shouldHoldOnSurface(thrustMag, surfaceGravity(pb.body))) {
-      this.ship.position = pb.body.position.add(pb.up.scale(pb.body.radius + this.padHeight));
-      this.ship.velocity = Vec3.zero();
+    if (this.phase !== "Descending") {
+      if (pb.altitude < this.padHeight && shouldHoldOnSurface(thrustMag, surfaceGravity(pb.body))) {
+        this.ship.position = pb.body.position.add(pb.up.scale(pb.body.radius + this.padHeight));
+        this.ship.velocity = Vec3.zero();
+      }
     }
 
     const atmoTop = pb.body.atmosphere ? pb.body.atmosphere.scaleHeight * 10 : 0;
@@ -157,9 +161,14 @@ export class Game {
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
     if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
     this.dust.update(dt);
-    const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
-    this.tc = next;
-    for (let i = 0; i < steps; i++) this.stepSim();
+    if (this.navmap.isOpen) {
+      // Drain the accumulator without stepping — map open pauses the sim.
+      this.tc = advance(this.tc, Math.min(dt, 0.1)).next;
+    } else {
+      const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
+      this.tc = next;
+      for (let i = 0; i < steps; i++) this.stepSim();
+    }
 
     const focusPos = this.phase === "OnFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
@@ -177,7 +186,10 @@ export class Game {
       const eye = new THREE.Vector3(r.x, r.y, r.z).add(up.clone().multiplyScalar(1.6));
       this.renderer.camera.position.copy(eye);
       this.renderer.camera.up.copy(up);
-      // free-look: let mouse control handled in a later polish step; for now look along surface
+      // Base orientation: look along a surface-tangent direction (world +X projected onto surface).
+      const baseFwd = new THREE.Vector3(1, 0, 0).sub(up.clone().multiplyScalar(up.dot(new THREE.Vector3(1, 0, 0)))).normalize();
+      this.renderer.camera.lookAt(eye.clone().add(baseFwd));
+      this.rig.applyLook(this.renderer.camera);
       this.astronautGroup.position.set(r.x, r.y, r.z);
       this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
     } else {
@@ -192,7 +204,7 @@ export class Game {
     requestAnimationFrame(this.frame);
   };
 
-  private initialFuel = 15000;
+  private initialFuel = 0;
 
   private updateHud(): void {
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
@@ -237,7 +249,7 @@ export class Game {
   private doWarp(): void {
     const name = this.navmap.targetName;
     if (!name) return;
-    if (this.phase === "OnFoot") return;
+    if (this.phase !== "InSpace" && this.phase !== "Launching" && this.phase !== "Descending") return;
     const target = this.bodies.find((b) => b.name === name);
     if (!target) return;
     this.ship = warpTo(this.ship, target);

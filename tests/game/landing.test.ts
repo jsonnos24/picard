@@ -19,4 +19,12 @@ describe("evaluateTouchdown", () => {
   it("crashes when tilted too far even if slow", () => {
     expect(evaluateTouchdown(CONTACT, -1, SAFE_TILT + 0.1, CONTACT)).toBe("crash");
   });
+
+  it("lands at exactly the safe vertical speed boundary (inclusive)", () => {
+    expect(evaluateTouchdown(CONTACT, -SAFE_VSPEED, 0, CONTACT)).toBe("landed");
+  });
+
+  it("lands at exactly the safe tilt boundary (inclusive)", () => {
+    expect(evaluateTouchdown(CONTACT, -1, SAFE_TILT, CONTACT)).toBe("landed");
+  });
 });

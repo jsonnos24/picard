@@ -22,4 +22,12 @@ describe("nextPhase", () => {
   it("Descending -> InSpace when climbing back out (abort)", () => {
     expect(nextPhase({ ...base, phase: "Descending", primaryName: "Moon", altitude: SPACE_ALTITUDE + 1, inAtmosphere: false })).toBe("InSpace");
   });
+
+  it("LandedMoon has no auto-transition (stays LandedMoon)", () => {
+    expect(nextPhase({ ...base, phase: "LandedMoon", primaryName: "Moon", altitude: 0, inAtmosphere: false })).toBe("LandedMoon");
+  });
+
+  it("OnFoot has no auto-transition (stays OnFoot)", () => {
+    expect(nextPhase({ ...base, phase: "OnFoot", primaryName: "Moon", altitude: 0, inAtmosphere: false })).toBe("OnFoot");
+  });
 });

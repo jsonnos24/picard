@@ -29,4 +29,13 @@ describe("projectMarker", () => {
     expect(m.x).toBeGreaterThanOrEqual(0);
     expect(m.x).toBeLessThanOrEqual(1);
   });
+
+  it("clamps a point far above the viewport to [0,1] and marks it off-screen", () => {
+    const m = projectMarker(new THREE.Vector3(0, 1e6, -100), cam());
+    expect(m.onScreen).toBe(false);
+    expect(m.x).toBeGreaterThanOrEqual(0);
+    expect(m.x).toBeLessThanOrEqual(1);
+    expect(m.y).toBeGreaterThanOrEqual(0);
+    expect(m.y).toBeLessThanOrEqual(1);
+  });
 });

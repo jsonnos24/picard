@@ -18,6 +18,11 @@ export class CameraRig {
     this.lookPitch = Math.max(-1.2, Math.min(1.2, this.lookPitch));
   }
 
+  applyLook(camera: THREE.PerspectiveCamera): void {
+    camera.rotateY(this.lookYaw);
+    camera.rotateX(this.lookPitch);
+  }
+
   setCockpit(shipRenderPos: THREE.Vector3, shipQuat: THREE.Quaternion): void {
     this.camera.position.copy(shipRenderPos);
     this.camera.quaternion.copy(shipQuat);
