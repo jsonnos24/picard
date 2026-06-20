@@ -297,6 +297,7 @@ export class Game {
       new THREE.Vector3(o.x, o.y, o.z).normalize(),
     );
     this.warpFx.play();
+    this.rig.resetLook(); // recenter the view so it faces the target you just warped to
     this.phase = "InSpace";
   }
 
