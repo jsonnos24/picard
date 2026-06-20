@@ -31,9 +31,13 @@ const BODY_COLORS: Record<string, number> = {
 };
 
 export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
-  scene.add(new THREE.AmbientLight(0x202028));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-  sun.position.set(1, 0.3, 0.2).normalize();
+  // Soft fill so shadowed hemispheres read as dim grey, not pure black.
+  scene.add(new THREE.AmbientLight(0x4a4f5e, 0.6));
+  // Sun: aimed from the Earth/launch side (-x, up, +z) so the Moon's Earth-facing
+  // hemisphere — the side you warp to and descend onto — is lit, and Earth's launch
+  // pole is lit too. Warm, bright.
+  const sun = new THREE.DirectionalLight(0xfff5e8, 2.2);
+  sun.position.set(-0.4, 0.6, 0.5).normalize();
   scene.add(sun);
 
   return bodies.map((body) => {
