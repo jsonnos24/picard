@@ -16,7 +16,9 @@ export type Intent =
   | "walkBack"
   | "walkLeft"
   | "walkRight"
-  | "jump";
+  | "jump"
+  | "warpFaster"
+  | "warpSlower";
 
 export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   KeyW: ["throttleUp", "walkForward"],
@@ -32,4 +34,6 @@ export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   KeyJ: ["warp"],
   KeyF: ["toggleExit"],
   KeyC: ["toggleCamera"],
+  Period: ["warpFaster"], // ">" steps time-warp up
+  Comma: ["warpSlower"], // "<" steps time-warp down
 };

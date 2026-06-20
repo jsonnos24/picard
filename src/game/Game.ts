@@ -30,6 +30,7 @@ import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
 import { createDust } from "../render/scene/dust";
+import { createSpeedDust } from "../render/scene/speedDust";
 import { projectMarker } from "./markers";
 import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
 import { createAstronaut3D } from "../render/scene/astronaut";
@@ -48,12 +49,15 @@ export class Game {
   private lastTime = 0;
   private readonly padHeight = 7; // half ship height so legs touch
   private phase: Phase = initialPhase();
+  private missionElapsed = 0; // simulated seconds since leaving the Earth pad
+  private static readonly WARP_LEVELS = [1, 2, 4, 6, 8];
   private hud!: HUD;
   private navmap!: NavMap;
   private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
+  private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3): void };
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -80,6 +84,7 @@ export class Game {
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;
 
     this.dust = createDust(this.renderer.scene);
+    this.speedDust = createSpeedDust(this.renderer.scene);
     const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
     canvasEl.addEventListener("click", () => canvasEl.requestPointerLock());
     window.addEventListener("mousemove", (e) => {
@@ -88,6 +93,8 @@ export class Game {
   }
 
   private stepSim(): void {
+    // Mission clock runs once we've left the Earth pad.
+    if (this.phase !== "LandedEarth") this.missionElapsed += FIXED_DT;
     if (this.phase === "OnFoot" && this.astronaut) {
       const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
       const dt = FIXED_DT;
@@ -160,6 +167,13 @@ export class Game {
     if (this.input.consumePressed("warp")) this.doWarp();
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
     if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
+    if (this.input.consumePressed("warpFaster")) this.stepTimeWarp(1);
+    if (this.input.consumePressed("warpSlower")) this.stepTimeWarp(-1);
+    // Time-warp only while cruising in space; force x1 otherwise so you can't
+    // fast-forward into a launch/descent/landing.
+    if (this.phase !== "InSpace" && this.tc.timeScale !== 1) {
+      this.tc = { ...this.tc, timeScale: 1 };
+    }
     this.dust.update(dt);
     if (this.navmap.isOpen) {
       // Drain the accumulator without stepping — map open pauses the sim.
@@ -205,6 +219,8 @@ export class Game {
 
     this.navmap.update(this.ship.position);
     this.warpFx.update(dt, this.renderer.camera.position);
+    const focusVel = this.phase === "OnFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
+    this.speedDust.update(focusVel, dt, this.renderer.camera.position);
     this.updateHud();
     this.updateMarker();
     this.renderer.render();
@@ -224,6 +240,8 @@ export class Game {
       fuelFraction: this.ship.fuelMass / this.initialFuel,
       throttle: this.ship.throttle,
       warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
+      timeScale: this.tc.timeScale,
+      missionSeconds: this.missionElapsed,
     });
   }
 
@@ -251,6 +269,18 @@ export class Game {
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
     this.phase = initialPhase();
+    this.missionElapsed = 0;
+    this.tc = { ...this.tc, timeScale: 1 };
+  }
+
+  // Cycle the time-warp multiplier through WARP_LEVELS (only meaningful in space;
+  // the frame loop forces x1 outside InSpace).
+  private stepTimeWarp(dir: number): void {
+    if (this.phase !== "InSpace") return;
+    const levels = Game.WARP_LEVELS;
+    const i = levels.indexOf(this.tc.timeScale);
+    const next = levels[Math.max(0, Math.min(levels.length - 1, (i < 0 ? 0 : i) + dir))];
+    this.tc = { ...this.tc, timeScale: next };
   }
 
   private doWarp(): void {
