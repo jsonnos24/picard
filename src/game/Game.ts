@@ -18,10 +18,12 @@ import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
 import { Vec3 } from "../sim/Vec3";
 import { FIXED_DT } from "../sim/constants";
+import { Phase, initialPhase } from "../sim/GameState";
 import { createInputManager, InputManager } from "../sim/input/InputManager";
 import { selectPrimaryBody } from "./primaryBody";
 import { rotateAttitude, thrustDirection } from "./attitude";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
+import { nextPhase, LAUNCH_CLEAR } from "./phases";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -36,6 +38,7 @@ export class Game {
   private input!: InputManager;
   private lastTime = 0;
   private readonly padHeight = 7; // half ship height so legs touch
+  private phase: Phase = initialPhase();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -76,6 +79,15 @@ export class Game {
       this.ship.position = pb.body.position.add(pb.up.scale(pb.body.radius + this.padHeight));
       this.ship.velocity = Vec3.zero();
     }
+
+    const atmoTop = pb.body.atmosphere ? pb.body.atmosphere.scaleHeight * 10 : 0;
+    this.phase = nextPhase({
+      phase: this.phase,
+      altitude: pb.altitude,
+      inAtmosphere: pb.altitude < atmoTop,
+      primaryName: pb.body.name,
+      launched: pb.altitude > LAUNCH_CLEAR,
+    });
   }
 
   private frame = (t: number): void => {
