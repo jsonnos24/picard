@@ -18,14 +18,13 @@ import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
 import { Vec3 } from "../sim/Vec3";
 import { FIXED_DT } from "../sim/constants";
-import { Phase, initialPhase } from "../sim/GameState";
+import { Phase, initialPhase, transition } from "../sim/GameState";
 import { createInputManager, InputManager } from "../sim/input/InputManager";
 import { selectPrimaryBody } from "./primaryBody";
 import { rotateAttitude, thrustDirection } from "./attitude";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { evaluateTouchdown } from "./landing";
-import { transition } from "../sim/GameState";
 import { HUD } from "../ui/HUD";
 
 export class Game {
