@@ -186,8 +186,12 @@ export class Game {
       const eye = new THREE.Vector3(r.x, r.y, r.z).add(up.clone().multiplyScalar(1.6));
       this.renderer.camera.position.copy(eye);
       this.renderer.camera.up.copy(up);
-      // Base orientation: look along a surface-tangent direction (world +X projected onto surface).
-      const baseFwd = new THREE.Vector3(1, 0, 0).sub(up.clone().multiplyScalar(up.dot(new THREE.Vector3(1, 0, 0)))).normalize();
+      // Base orientation: look along a surface-tangent direction.
+      // Guard against degenerate case where up is (anti)parallel to world +X by choosing a fallback axis.
+      const refAxis = Math.abs(up.x) > 0.9
+        ? new THREE.Vector3(0, 0, 1)
+        : new THREE.Vector3(1, 0, 0);
+      const baseFwd = refAxis.clone().sub(up.clone().multiplyScalar(up.dot(refAxis))).normalize();
       this.renderer.camera.lookAt(eye.clone().add(baseFwd));
       this.rig.applyLook(this.renderer.camera);
       this.astronautGroup.position.set(r.x, r.y, r.z);
