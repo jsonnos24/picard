@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { safeApproachDistance, warpTo } from "../../src/sim/WarpDrive";
+import { safeApproachDistance, warpTo, SAFE_APPROACH_RADII } from "../../src/sim/WarpDrive";
 import { createSolarSystem } from "../../src/sim/Body";
 import { createSpacecraft } from "../../src/sim/Spacecraft";
 import { Vec3 } from "../../src/sim/Vec3";
 
 describe("WarpDrive", () => {
-  it("computes a safe approach distance of 5 body radii", () => {
+  it("computes a safe approach distance of SAFE_APPROACH_RADII body radii", () => {
     const [, moon] = createSolarSystem();
-    expect(safeApproachDistance(moon)).toBeCloseTo(moon.radius * 5, 0);
+    expect(safeApproachDistance(moon)).toBeCloseTo(moon.radius * SAFE_APPROACH_RADII, 0);
   });
 
   it("drops the ship out at the safe approach distance from target center", () => {
