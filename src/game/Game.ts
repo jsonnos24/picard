@@ -80,7 +80,7 @@ export class Game {
   private stepSim(): void {
     if (this.phase === "OnFoot" && this.astronaut) {
       const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
-      const dt = 1 / 60;
+      const dt = FIXED_DT;
       // Build a walk direction in the surface tangent from camera-facing + WASD.
       const fwd = new THREE.Vector3();
       this.renderer.camera.getWorldDirection(fwd);
@@ -148,7 +148,8 @@ export class Game {
     this.tc = next;
     for (let i = 0; i < steps; i++) this.stepSim();
 
-    this.fo = rebase(this.fo, this.ship.position);
+    const focusPos = this.phase === "OnFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
+    this.fo = rebase(this.fo, focusPos);
     updateBodies(this.views, this.fo);
 
     const shipRender = toRender(this.fo, this.ship.position);
