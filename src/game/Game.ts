@@ -30,6 +30,8 @@ import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
 import { projectMarker } from "./markers";
+import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
+import { createAstronaut3D } from "../render/scene/astronaut";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -48,6 +50,8 @@ export class Game {
   private hud!: HUD;
   private navmap!: NavMap;
   private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
+  private astronaut: Astronaut | null = null;
+  private astronautGroup!: THREE.Group;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -70,9 +74,28 @@ export class Game {
     this.hud = new HUD(document.getElementById("ui")!);
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
     this.warpFx = createWarpEffect(this.renderer.scene);
+    this.astronautGroup = createAstronaut3D(this.renderer.scene).group;
   }
 
   private stepSim(): void {
+    if (this.phase === "OnFoot" && this.astronaut) {
+      const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
+      const dt = 1 / 60;
+      // Build a walk direction in the surface tangent from camera-facing + WASD.
+      const fwd = new THREE.Vector3();
+      this.renderer.camera.getWorldDirection(fwd);
+      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z)).normalize();
+      let move = new THREE.Vector3();
+      if (this.input.isActive("walkForward")) move.add(fwd);
+      if (this.input.isActive("walkBack")) move.sub(fwd);
+      if (this.input.isActive("walkLeft")) move.sub(right);
+      if (this.input.isActive("walkRight")) move.add(right);
+      const walkDir = new Vec3(move.x, move.y, move.z);
+      const jump = this.input.isActive("jump");
+      this.astronaut = stepAstronaut(this.astronaut, pb.body, walkDir, jump, dt);
+      return; // skip ship integration this step
+    }
+
     const dt = FIXED_DT;
     // Attitude + throttle from input.
     this.quat = rotateAttitude(this.quat, this.input, dt);
@@ -120,6 +143,7 @@ export class Game {
     this.lastTime = t;
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
     if (this.input.consumePressed("warp")) this.doWarp();
+    if (this.input.consumePressed("toggleExit")) this.toggleExit();
     const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
     this.tc = next;
     for (let i = 0; i < steps; i++) this.stepSim();
@@ -131,7 +155,20 @@ export class Game {
     const shipVec = new THREE.Vector3(shipRender.x, shipRender.y, shipRender.z);
     this.shipGroup.position.copy(shipVec);
     this.shipGroup.quaternion.copy(this.quat);
-    this.rig.setCockpit(shipVec, this.quat);
+
+    if (this.phase === "OnFoot" && this.astronaut) {
+      const r = toRender(this.fo, this.astronaut.position);
+      const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
+      const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
+      const eye = new THREE.Vector3(r.x, r.y, r.z).add(up.clone().multiplyScalar(1.6));
+      this.renderer.camera.position.copy(eye);
+      this.renderer.camera.up.copy(up);
+      // free-look: let mouse control handled in a later polish step; for now look along surface
+      this.astronautGroup.position.set(r.x, r.y, r.z);
+      this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+    } else {
+      this.rig.setCockpit(shipVec, this.quat);
+    }
 
     this.navmap.update(this.ship.position);
     this.warpFx.update(dt, this.renderer.camera.position);
@@ -198,6 +235,22 @@ export class Game {
     );
     this.warpFx.play();
     this.phase = "InSpace";
+  }
+
+  private toggleExit(): void {
+    if (this.phase === "LandedMoon" && !this.astronaut) {
+      const pb = selectPrimaryBody(this.ship.position, this.bodies);
+      // spawn just beside the lander on the surface
+      const start = pb.body.position.add(pb.up.scale(pb.body.radius + 1.2));
+      this.astronaut = createAstronaut(start);
+      this.astronaut.onGround = true;
+      this.astronautGroup.visible = true;
+      this.phase = transition("LandedMoon", "OnFoot");
+    } else if (this.phase === "OnFoot" && this.astronaut) {
+      this.astronaut = null;
+      this.astronautGroup.visible = false;
+      this.phase = transition("OnFoot", "LandedMoon");
+    }
   }
 
   start(): void {
