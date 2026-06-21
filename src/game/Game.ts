@@ -35,6 +35,7 @@ import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
+import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
 import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
 import { createAstronaut3D } from "../render/scene/astronaut";
@@ -64,7 +65,7 @@ export class Game {
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
-  private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3): void };
+  private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void };
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -296,7 +297,9 @@ export class Game {
     this.navmap.update(this.ship.position);
     this.warpFx.update(dt, this.renderer.camera.position);
     const focusVel = this.phase === "OnFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
-    this.speedDust.update(focusVel, dt, this.renderer.camera.position);
+    const focusPb = selectPrimaryBody(focusPos, this.bodies);
+    const skim = skimIntensity(focusPb.altitude, focusVel.length());
+    this.speedDust.update(focusVel, dt, this.renderer.camera.position, skim);
     this.updateHud();
     this.updateMarker();
     this.renderer.render();
