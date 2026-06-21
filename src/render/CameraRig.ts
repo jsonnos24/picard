@@ -40,6 +40,7 @@ export class CameraRig {
     accelMag: number,
     angular: AngularState,
     t: number,
+    warpFovScale = 1,
   ): void {
     this.camera.position.copy(shipRenderPos);
     this.camera.quaternion.copy(shipQuat);
@@ -55,8 +56,9 @@ export class CameraRig {
     this.camera.translateY(sh.y + lean.y);
     this.camera.translateZ(sh.z + lean.z);
 
-    const targetFov = fovForSpeed(speed);
-    this.currentFov += (targetFov - this.currentFov) * 0.08;
+    const targetFov = fovForSpeed(speed) * warpFovScale;
+    const smoothing = warpFovScale !== 1 ? 0.5 : 0.08;
+    this.currentFov += (targetFov - this.currentFov) * smoothing;
     if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {
       this.camera.fov = this.currentFov;
       this.camera.updateProjectionMatrix();

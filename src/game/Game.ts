@@ -33,6 +33,7 @@ import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
+import { WarpSeq, idleWarp, startWarp, stepWarp } from "./feel/warpSequence";
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
 import { skimIntensity } from "./feel/skim";
@@ -61,7 +62,10 @@ export class Game {
   private static readonly WARP_LEVELS = [1, 4, 10, 25, 100];
   private hud!: HUD;
   private navmap!: NavMap;
-  private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
+  private warpFx!: { update(cameraPos: THREE.Vector3, tunnel: number, flash: number): void };
+  private warpSeq: WarpSeq = idleWarp();
+  private pendingWarpTarget: Body | null = null;
+  private warpFovScale = 1;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
@@ -232,6 +236,16 @@ export class Game {
     if (this.input.consumePressed("warpFaster")) this.stepTimeWarp(1);
     if (this.input.consumePressed("warpSlower")) this.stepTimeWarp(-1);
     if (this.input.consumePressed("landingAssist")) this.assistOn = !this.assistOn;
+
+    // Drive the warp leap sequence (charge → release → settle).
+    const w = stepWarp(this.warpSeq, dt);
+    this.warpSeq = w.seq;
+    this.warpFovScale = w.fovScale;
+    if (w.teleport && this.pendingWarpTarget) {
+      this.executeWarp(this.pendingWarpTarget);
+      this.pendingWarpTarget = null;
+    }
+
     if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
       // The assist flies the descent — auto-time-warp through the boring part and
       // ease back near the surface so the touchdown is at a watchable speed.
@@ -291,11 +305,12 @@ export class Game {
         this.lastAccelMag,
         this.angular,
         t / 1000,
+        this.warpFovScale,
       );
     }
 
     this.navmap.update(this.ship.position);
-    this.warpFx.update(dt, this.renderer.camera.position);
+    this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
     const focusVel = this.phase === "OnFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
     const focusPb = selectPrimaryBody(focusPos, this.bodies);
     const skim = skimIntensity(focusPb.altitude, focusVel.length());
@@ -365,20 +380,24 @@ export class Game {
   }
 
   private doWarp(): void {
+    if (this.warpSeq.phase !== "idle") return; // already warping
     const name = this.navmap.targetName;
     if (!name) return;
     if (this.phase !== "InSpace" && this.phase !== "Launching" && this.phase !== "Descending") return;
     const target = this.bodies.find((b) => b.name === name);
     if (!target) return;
+    this.pendingWarpTarget = target;
+    this.warpSeq = startWarp();
+  }
+
+  private executeWarp(target: Body): void {
     this.ship = warpTo(this.ship, target);
-    // align orientation quaternion with the new orientation (point at target)
     const o = this.ship.orientation;
     this.quat = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(o.x, o.y, o.z).normalize(),
     );
-    this.warpFx.play();
-    this.rig.resetLook(); // recenter the view so it faces the target you just warped to
+    this.rig.resetLook();
     this.phase = "InSpace";
   }
 
