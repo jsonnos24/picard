@@ -28,6 +28,7 @@ import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
+import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
 import { warpTo } from "../sim/WarpDrive";
 import { createWarpEffect } from "../render/scene/warpEffect";
@@ -82,6 +83,7 @@ export class Game {
 
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
+    new Controls(document.getElementById("ui")!);
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
     this.warpFx = createWarpEffect(this.renderer.scene);
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;

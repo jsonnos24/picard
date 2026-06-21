@@ -5,6 +5,15 @@
 #hud .warp { color: #6cf; font-weight: bold; }
 #hud .row b { color: #cef; }
 
+#controls { position: absolute; top: 16px; right: 16px; font: 12px/1.55 "Courier New", monospace;
+            color: #9cf; background: rgba(0,0,20,0.4); border: 1px solid #2a3; padding: 8px 12px;
+            max-width: 320px; text-shadow: 0 0 4px #000; }
+#controls.hidden { display: none; }
+#controls .title { color: #cef; font-weight: bold; margin-bottom: 4px; }
+#controls .hint { color: #688; font-weight: normal; }
+#controls .crow { display: flex; gap: 10px; }
+#controls .crow b { color: #6cf; min-width: 64px; display: inline-block; }
+
 #navmap { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
           width: 480px; height: 360px; background: rgba(0,0,20,0.85); border: 1px solid #3a6;
           pointer-events: auto; display: none; }
