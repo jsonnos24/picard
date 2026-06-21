@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { fovForSpeed } from "../game/feel/fov";
+import { fovForSpeed, FOV_BASE } from "../game/feel/fov";
 import { shakeOffset, gLeanOffset } from "../game/feel/shake";
 import { AngularState } from "../game/feel/turning";
 
@@ -8,7 +8,7 @@ export class CameraRig {
   private downView = false;
   private lookYaw = 0;
   private lookPitch = 0;
-  private currentFov = 70;
+  private currentFov = FOV_BASE;
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
@@ -57,6 +57,7 @@ export class CameraRig {
     this.camera.translateZ(sh.z + lean.z);
 
     const targetFov = fovForSpeed(speed) * warpFovScale;
+    // warpFovScale is exactly 1 only when no warp is active (warpSequence returns literal 1 when idle); during a warp it is never exactly 1, so this engages faster FOV smoothing for the whole sequence.
     const smoothing = warpFovScale !== 1 ? 0.5 : 0.08;
     this.currentFov += (targetFov - this.currentFov) * smoothing;
     if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {

@@ -130,6 +130,8 @@ export class Game {
     if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
       // Landing assist drives orientation + throttle this step.
       this.applyLandingAssist();
+      // Player isn't manually turning during assist; zero the rate so g-lean decays to zero.
+      this.angular = zeroAngular();
     } else {
       // Momentum turning: rates ramp up and ease out for a swoopy, alive feel.
       const turn = stepTurning(this.quat, this.angular, this.input, dt);
@@ -363,6 +365,7 @@ export class Game {
     this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
+    this.angular = zeroAngular();
     this.phase = initialPhase();
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };
@@ -397,6 +400,7 @@ export class Game {
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(o.x, o.y, o.z).normalize(),
     );
+    this.angular = zeroAngular();
     this.rig.resetLook();
     this.phase = "InSpace";
   }

@@ -13,6 +13,7 @@ const ACCEL_REF = 60;   // m/s^2 where thrust's shake contribution saturates
 export function shakeOffset(speed: number, accelMag: number, t: number): Offset {
   const speedTerm = 1 - Math.exp(-Math.max(0, speed) / SPEED_REF);
   const accelTerm = 1 - Math.exp(-Math.max(0, accelMag) / ACCEL_REF);
+  // The 0.5+0.7 coefficients can sum above 1, so Math.min(1, ...) is what enforces the SHAKE_MAX bound — keep it.
   const amp = SHAKE_MAX * Math.min(1, 0.5 * speedTerm + 0.7 * accelTerm);
   // Layered sines at incommensurate frequencies → pseudo-random but deterministic.
   return {
