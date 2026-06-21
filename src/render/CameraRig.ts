@@ -1,10 +1,12 @@
 import * as THREE from "three";
+import { fovForSpeed } from "../game/feel/fov";
 
 // First-person: camera sits where the cockpit is and shares the ship's orientation.
 export class CameraRig {
   private downView = false;
   private lookYaw = 0;
   private lookPitch = 0;
+  private currentFov = 70;
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
@@ -29,16 +31,20 @@ export class CameraRig {
     camera.rotateX(this.lookPitch);
   }
 
-  setCockpit(shipRenderPos: THREE.Vector3, shipQuat: THREE.Quaternion): void {
+  setCockpit(shipRenderPos: THREE.Vector3, shipQuat: THREE.Quaternion, speed: number): void {
     this.camera.position.copy(shipRenderPos);
     this.camera.quaternion.copy(shipQuat);
-    // The ship's local +Y is the nose/thrust direction. Look ALONG the nose by default
-    // (+90deg about X maps the camera's -Z forward onto +Y) so you see where you're
-    // heading and accelerate toward where you look. Down-view (-90deg) looks out the
-    // belly (-Y) — toward the planet when you've flipped retrograde to land.
     const tilt = this.downView ? -Math.PI / 2 : Math.PI / 2;
     this.camera.rotateX(tilt);
     this.camera.rotateY(this.lookYaw);
     this.camera.rotateX(this.lookPitch);
+
+    // Speed-reactive FOV, eased toward the target so it breathes.
+    const targetFov = fovForSpeed(speed);
+    this.currentFov += (targetFov - this.currentFov) * 0.08;
+    if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {
+      this.camera.fov = this.currentFov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 }

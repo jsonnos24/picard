@@ -281,7 +281,7 @@ export class Game {
       this.astronautGroup.position.set(r.x, r.y, r.z);
       this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
     } else {
-      this.rig.setCockpit(shipVec, this.quat);
+      this.rig.setCockpit(shipVec, this.quat, this.ship.velocity.length());
     }
 
     this.navmap.update(this.ship.position);
