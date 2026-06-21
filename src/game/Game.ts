@@ -48,6 +48,7 @@ export class Game {
   private ship: Spacecraft;
   private quat = new THREE.Quaternion(); // ship orientation
   private angular: AngularState = zeroAngular();
+  private lastAccelMag = 0;
   private fo: FloatingOrigin;
   private tc: TimeControl;
   private input!: InputManager;
@@ -134,6 +135,7 @@ export class Game {
     }
 
     const accel = shipAccelFn(this.ship, this.bodies);
+    this.lastAccelMag = shipThrustAccel(this.ship).length();
     const next = verletStep(toMotionState(this.ship), dt, accel);
     this.ship = applyMotionState(this.ship, next);
     this.ship = burnFuel(this.ship, dt);
@@ -281,7 +283,14 @@ export class Game {
       this.astronautGroup.position.set(r.x, r.y, r.z);
       this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
     } else {
-      this.rig.setCockpit(shipVec, this.quat, this.ship.velocity.length());
+      this.rig.setCockpit(
+        shipVec,
+        this.quat,
+        this.ship.velocity.length(),
+        this.lastAccelMag,
+        this.angular,
+        t / 1000,
+      );
     }
 
     this.navmap.update(this.ship.position);

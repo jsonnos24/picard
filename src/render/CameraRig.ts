@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { fovForSpeed } from "../game/feel/fov";
+import { shakeOffset, gLeanOffset } from "../game/feel/shake";
+import { AngularState } from "../game/feel/turning";
 
 // First-person: camera sits where the cockpit is and shares the ship's orientation.
 export class CameraRig {
@@ -31,7 +33,14 @@ export class CameraRig {
     camera.rotateX(this.lookPitch);
   }
 
-  setCockpit(shipRenderPos: THREE.Vector3, shipQuat: THREE.Quaternion, speed: number): void {
+  setCockpit(
+    shipRenderPos: THREE.Vector3,
+    shipQuat: THREE.Quaternion,
+    speed: number,
+    accelMag: number,
+    angular: AngularState,
+    t: number,
+  ): void {
     this.camera.position.copy(shipRenderPos);
     this.camera.quaternion.copy(shipQuat);
     const tilt = this.downView ? -Math.PI / 2 : Math.PI / 2;
@@ -39,7 +48,13 @@ export class CameraRig {
     this.camera.rotateY(this.lookYaw);
     this.camera.rotateX(this.lookPitch);
 
-    // Speed-reactive FOV, eased toward the target so it breathes.
+    // Camera-local shake + g-lean (translateX/Y/Z move along the camera's own axes).
+    const sh = shakeOffset(speed, accelMag, t);
+    const lean = gLeanOffset(angular);
+    this.camera.translateX(sh.x + lean.x);
+    this.camera.translateY(sh.y + lean.y);
+    this.camera.translateZ(sh.z + lean.z);
+
     const targetFov = fovForSpeed(speed);
     this.currentFov += (targetFov - this.currentFov) * 0.08;
     if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {
