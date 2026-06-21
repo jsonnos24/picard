@@ -53,7 +53,7 @@ export class Game {
   private phase: Phase = initialPhase();
   private missionElapsed = 0; // simulated seconds since leaving the Earth pad
   private assistOn = false; // landing assist: auto-orient upright + descent-rate limiter
-  private static readonly WARP_LEVELS = [1, 2, 4, 6, 8];
+  private static readonly WARP_LEVELS = [1, 4, 10, 25, 100];
   private hud!: HUD;
   private navmap!: NavMap;
   private warpFx!: { play(): void; update(dt: number, cameraPosition?: THREE.Vector3): void };
@@ -223,9 +223,16 @@ export class Game {
     if (this.input.consumePressed("warpFaster")) this.stepTimeWarp(1);
     if (this.input.consumePressed("warpSlower")) this.stepTimeWarp(-1);
     if (this.input.consumePressed("landingAssist")) this.assistOn = !this.assistOn;
-    // Time-warp only while cruising in space; force x1 otherwise so you can't
-    // fast-forward into a launch/descent/landing.
-    if (this.phase !== "InSpace" && this.tc.timeScale !== 1) {
+    if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
+      // The assist flies the descent — auto-time-warp through the boring part and
+      // ease back near the surface so the touchdown is at a watchable speed.
+      // (Physics is per fixed-step, so warping stays accurate.)
+      const alt = selectPrimaryBody(this.ship.position, this.bodies).altitude;
+      const ts = alt > 8000 ? 40 : alt > 2000 ? 12 : alt > 400 ? 4 : alt > 120 ? 2 : 1;
+      this.tc = { ...this.tc, timeScale: ts };
+    } else if (this.phase !== "InSpace" && this.tc.timeScale !== 1) {
+      // Manual time-warp only while cruising in space; force x1 otherwise so you
+      // can't fast-forward into a launch/descent/landing.
       this.tc = { ...this.tc, timeScale: 1 };
     }
     this.dust.update(dt);
