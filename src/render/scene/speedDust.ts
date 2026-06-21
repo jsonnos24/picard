@@ -1,62 +1,63 @@
 import * as THREE from "three";
 import { Vec3 } from "../../sim/Vec3";
+import { streakParams } from "../../game/feel/streak";
 
-// A near-field field of faint particles centered on the camera. As the ship moves,
-// the particles stream past (opposite to velocity), giving the parallax/motion cue
-// that distant stars can't — so high speeds actually *feel* fast. Invisible at rest.
 const COUNT = 500;
 const HALF = 1200; // metres: half-extent of the cube around the camera
 
-// Deterministic [0,1) hash so the field is stable across reloads (matches starfield style).
 function rnd(n: number): number {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
-
 function wrap(v: number): number {
-  // wrap into [-HALF, HALF)
   return v - 2 * HALF * Math.floor((v + HALF) / (2 * HALF));
 }
 
 export function createSpeedDust(scene: THREE.Scene): {
-  update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3): void;
+  update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void;
 } {
-  const positions = new Float32Array(COUNT * 3);
+  // Two endpoints per particle: [head, tail]. Head holds the base position; tail
+  // is recomputed each frame as head - velDir * length.
+  const base = new Float32Array(COUNT * 3);
   for (let i = 0; i < COUNT; i++) {
-    positions[i * 3] = rnd(i + 1) * 2 * HALF - HALF;
-    positions[i * 3 + 1] = rnd(i + 101) * 2 * HALF - HALF;
-    positions[i * 3 + 2] = rnd(i + 201) * 2 * HALF - HALF;
+    base[i * 3] = rnd(i + 1) * 2 * HALF - HALF;
+    base[i * 3 + 1] = rnd(i + 101) * 2 * HALF - HALF;
+    base[i * 3 + 2] = rnd(i + 201) * 2 * HALF - HALF;
   }
+  const verts = new Float32Array(COUNT * 6); // 2 points * 3 coords
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  const mat = new THREE.LineBasicMaterial({
     color: 0xaac4ff,
-    size: 2.0,
-    sizeAttenuation: true,
     transparent: true,
     opacity: 0,
     depthWrite: false,
   });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  scene.add(points);
+  const lines = new THREE.LineSegments(geo, mat);
+  lines.frustumCulled = false;
+  scene.add(lines);
 
   return {
-    update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3): void {
+    update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost = 0): void {
       const speed = velocity.length();
-      // Fade in with speed; fully visible by ~120 m/s, capped so it stays subtle.
-      mat.opacity = Math.min(0.55, speed / 120);
-      points.position.copy(cameraPos); // keep the field wrapped around the camera
+      const p = streakParams(speed, boost);
+      mat.opacity = p.opacity;
+      lines.position.copy(cameraPos);
 
-      if (speed > 0.01 && mat.opacity > 0) {
-        const dx = velocity.x * dt;
-        const dy = velocity.y * dt;
-        const dz = velocity.z * dt;
-        const arr = geo.attributes.position.array as Float32Array;
+      if (speed > 0.01 && p.opacity > 0) {
+        const inv = 1 / speed;
+        const dirx = velocity.x * inv, diry = velocity.y * inv, dirz = velocity.z * inv;
+        const dx = velocity.x * dt, dy = velocity.y * dt, dz = velocity.z * dt;
+        const L = p.length;
         for (let i = 0; i < COUNT; i++) {
-          arr[i * 3] = wrap(arr[i * 3] - dx);
-          arr[i * 3 + 1] = wrap(arr[i * 3 + 1] - dy);
-          arr[i * 3 + 2] = wrap(arr[i * 3 + 2] - dz);
+          // Advance the base position opposite to velocity (parallax), wrapped.
+          base[i * 3] = wrap(base[i * 3] - dx);
+          base[i * 3 + 1] = wrap(base[i * 3 + 1] - dy);
+          base[i * 3 + 2] = wrap(base[i * 3 + 2] - dz);
+          const hx = base[i * 3], hy = base[i * 3 + 1], hz = base[i * 3 + 2];
+          const o = i * 6;
+          verts[o] = hx; verts[o + 1] = hy; verts[o + 2] = hz;             // head
+          verts[o + 3] = hx - dirx * L; verts[o + 4] = hy - diry * L; verts[o + 5] = hz - dirz * L; // tail
         }
         geo.attributes.position.needsUpdate = true;
       }
