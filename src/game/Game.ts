@@ -23,7 +23,8 @@ import { FIXED_DT } from "../sim/constants";
 import { Phase, initialPhase, transition } from "../sim/GameState";
 import { createInputManager, InputManager } from "../sim/input/InputManager";
 import { selectPrimaryBody } from "./primaryBody";
-import { rotateAttitude, thrustDirection } from "./attitude";
+import { thrustDirection } from "./attitude";
+import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { evaluateTouchdown } from "./landing";
@@ -46,6 +47,7 @@ export class Game {
   private readonly shipGroup: THREE.Group;
   private ship: Spacecraft;
   private quat = new THREE.Quaternion(); // ship orientation
+  private angular: AngularState = zeroAngular();
   private fo: FloatingOrigin;
   private tc: TimeControl;
   private input!: InputManager;
@@ -123,8 +125,10 @@ export class Game {
       // Landing assist drives orientation + throttle this step.
       this.applyLandingAssist();
     } else {
-      // Attitude + throttle from input.
-      this.quat = rotateAttitude(this.quat, this.input, dt);
+      // Momentum turning: rates ramp up and ease out for a swoopy, alive feel.
+      const turn = stepTurning(this.quat, this.angular, this.input, dt);
+      this.quat = turn.quat;
+      this.angular = turn.state;
       this.ship.throttle = nextThrottle(this.ship.throttle, this.input, dt);
       this.ship.orientation = thrustDirection(this.quat);
     }
