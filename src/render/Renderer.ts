@@ -11,6 +11,7 @@ export class Renderer {
     // Cap DPR: phones report 3-4x and the fill-rate cost isn't worth it.
     this.gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x070b18); // deep navy, not void-black
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1e9);
     this.scene.add(createStarfield());
     this.resize();

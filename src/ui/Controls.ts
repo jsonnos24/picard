@@ -9,7 +9,7 @@ const ROWS: [string, string][] = [
   ["M", "Nav map — click a body to target"],
   ["J", "Lightspeed to target (again to cancel)"],
   ["L", "Landing assist (auto-descend)"],
-  ["C", "Camera / down-view"],
+  ["C", "Camera: chase / cockpit"],
   ["F", "Exit / enter ship"],
   ["W A S D", "Walk (on foot)"],
   ["H", "Show / hide controls"],

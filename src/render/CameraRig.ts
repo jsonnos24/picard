@@ -2,15 +2,29 @@ import * as THREE from "three";
 import { fovForSpeed, FOV_BASE } from "../game/feel/fov";
 import { shakeOffset, gLeanOffset } from "../game/feel/shake";
 import { AngularState } from "../game/feel/turning";
+import { chaseFrame, smoothToward, SlingView } from "../game/feel/chase";
+import { Vec3 } from "../sim/Vec3";
 
-// First-person: camera sits where the cockpit is and shares the ship's orientation.
+export type CameraMode = "chase" | "cockpit";
+
+// Chase (default): swoopy third-person framing that shows off the toon ship.
+// Cockpit: camera sits where the cockpit is and shares the ship's orientation.
 export class CameraRig {
+  mode: CameraMode = "chase";
   private downView = false;
   private lookYaw = 0;
   private lookPitch = 0;
   private currentFov = FOV_BASE;
+  private chasePos: Vec3 | null = null; // smoothed chase state
+  private chaseLook: Vec3 | null = null;
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
+
+  toggleMode(): void {
+    this.mode = this.mode === "chase" ? "cockpit" : "chase";
+    this.chasePos = null; // re-seed the smoothing on next chase frame
+    this.chaseLook = null;
+  }
 
   toggleDownView(): void {
     this.downView = !this.downView;
@@ -56,8 +70,41 @@ export class CameraRig {
     this.camera.translateY(sh.y + lean.y);
     this.camera.translateZ(sh.z + lean.z);
 
+    this.applyFov(speed, warpFovScale);
+  }
+
+  setChase(
+    shipRenderPos: THREE.Vector3,
+    shipQuat: THREE.Quaternion,
+    speed: number,
+    dt: number,
+    sling: SlingView | null,
+    warpFovScale = 1,
+  ): void {
+    const fwd3 = new THREE.Vector3(0, 1, 0).applyQuaternion(shipQuat); // nose
+    const up3 = new THREE.Vector3(0, 0, 1).applyQuaternion(shipQuat); // matches cockpit-up
+    const ship = new Vec3(shipRenderPos.x, shipRenderPos.y, shipRenderPos.z);
+    const frame = chaseFrame(
+      ship,
+      new Vec3(fwd3.x, fwd3.y, fwd3.z),
+      new Vec3(up3.x, up3.y, up3.z),
+      speed,
+      sling,
+    );
+    this.chasePos = this.chasePos ? smoothToward(this.chasePos, frame.camPos, 6, dt) : frame.camPos;
+    this.chaseLook = this.chaseLook
+      ? smoothToward(this.chaseLook, frame.lookAt, 10, dt)
+      : frame.lookAt;
+    this.camera.position.set(this.chasePos.x, this.chasePos.y, this.chasePos.z);
+    this.camera.up.copy(up3);
+    this.camera.lookAt(this.chaseLook.x, this.chaseLook.y, this.chaseLook.z);
+    this.applyFov(speed, warpFovScale);
+  }
+
+  private applyFov(speed: number, warpFovScale: number): void {
     const targetFov = fovForSpeed(speed) * warpFovScale;
-    // warpFovScale is exactly 1 only when no warp is active (warpSequence returns literal 1 when idle); during a warp it is never exactly 1, so this engages faster FOV smoothing for the whole sequence.
+    // warpFovScale is exactly 1 only when no lightspeed sequence is active; during
+    // one it is never exactly 1, so this engages faster FOV smoothing throughout.
     const smoothing = warpFovScale !== 1 ? 0.5 : 0.08;
     this.currentFov += (targetFov - this.currentFov) * smoothing;
     if (Math.abs(this.camera.fov - this.currentFov) > 0.01) {

@@ -359,7 +359,7 @@ export class Game {
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
     if (this.input.consumePressed("lightspeed")) this.toggleLightspeed();
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
-    if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
+    if (this.input.consumePressed("toggleCamera")) this.rig.toggleMode();
     if (this.input.consumePressed("landingAssist")) this.assistOn = !this.assistOn;
 
     // Drive the lightspeed cinematics (charge → burst → cruise → settle).
@@ -397,9 +397,9 @@ export class Game {
     const shipVec = new THREE.Vector3(shipRender.x, shipRender.y, shipRender.z);
     this.shipGroup.position.copy(shipVec);
     this.shipGroup.quaternion.copy(this.quat);
-    // First-person cockpit: hide our own exterior so it doesn't fill the view.
-    // Show the lander only when we've stepped out (to look back at it).
-    this.shipGroup.visible = this.phase.kind === "onFoot";
+    // Chase cam shows the toon ship; cockpit hides our own exterior. On foot the
+    // lander stays visible so you can look back at it.
+    this.shipGroup.visible = this.rig.mode === "chase" || this.phase.kind === "onFoot";
 
     if (this.phase.kind === "onFoot" && this.astronaut) {
       const r = toRender(this.fo, this.astronaut.position);
@@ -418,6 +418,25 @@ export class Game {
       this.rig.applyLook(this.renderer.camera);
       this.astronautGroup.position.set(r.x, r.y, r.z);
       this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+    } else if (this.rig.mode === "chase") {
+      let slingView = null;
+      if (this.sling.kind === "captured") {
+        const body = findBody(this.bodies, this.sling.bodyName);
+        const c = toRender(this.fo, body.position);
+        slingView = {
+          center: new Vec3(c.x, c.y, c.z),
+          normal: this.sling.e1.cross(this.sling.e2).normalize(),
+          bodyRadius: body.radius,
+        };
+      }
+      this.rig.setChase(
+        shipVec,
+        this.quat,
+        this.ship.velocity.length(),
+        dt,
+        slingView,
+        this.lsFovScale,
+      );
     } else {
       this.rig.setCockpit(
         shipVec,
