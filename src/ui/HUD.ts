@@ -5,7 +5,7 @@ export interface HudState {
   verticalSpeed: number;
   throttle: number;
   warning: string | null;
-  timeScale: number; // 1 = real time; 2/4/6/8 = fast-forward
+  lightspeedEta: number | null; // seconds to the drop point while cruising, else null
   missionSeconds: number; // simulated seconds since leaving Earth
   assistOn: boolean; // landing assist engaged
 }
@@ -71,7 +71,9 @@ export class HUD {
       `<div class="row">V/S <b>${s.verticalSpeed.toFixed(1)} m/s</b></div>` +
       `<div class="row">THR <b>${(s.throttle * 100).toFixed(0)}%</b></div>` +
       `<div class="row">MET <b>${fmtMissionTime(s.missionSeconds)}</b></div>` +
-      (s.timeScale > 1 ? `<div class="row warp">▶▶ WARP x${s.timeScale}</div>` : "") +
+      (s.lightspeedEta !== null
+        ? `<div class="row warp">▶▶ LIGHTSPEED · ${Math.ceil(s.lightspeedEta)}s</div>`
+        : "") +
       (s.assistOn ? `<div class="row warp">🛬 LANDING ASSIST</div>` : "") +
       (s.warning ? `<div class="row warn">${s.warning}</div>` : "");
   }

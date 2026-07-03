@@ -50,3 +50,13 @@ export class Vec3 {
     return new Vec3(this.x, this.y, this.z);
   }
 }
+
+// Rodrigues rotation of v about a unit-length axis.
+export function rotateAboutAxis(v: Vec3, axis: Vec3, angle: number): Vec3 {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return v
+    .scale(cos)
+    .add(axis.cross(v).scale(sin))
+    .add(axis.scale(axis.dot(v) * (1 - cos)));
+}

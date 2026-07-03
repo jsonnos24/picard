@@ -28,10 +28,10 @@ describe("InputManager", () => {
     expect(im.consumePressed("openMap")).toBe(true); // new press
   });
 
-  it("maps warp to KeyJ", () => {
+  it("maps lightspeed to KeyJ", () => {
     const im = createInputManager();
     im.handleKey("KeyJ", true);
-    expect(im.consumePressed("warp")).toBe(true);
+    expect(im.consumePressed("lightspeed")).toBe(true);
   });
 
   it("ignores unbound keys", () => {

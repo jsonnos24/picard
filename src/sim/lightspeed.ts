@@ -1,0 +1,126 @@
+import { Vec3, rotateAboutAxis } from "./Vec3";
+
+// Lightspeed is real flight, not a teleport: a trapezoid speed profile toward
+// the nav target that always hands the ship off at the target's capture ring
+// moving inward at vArrive — exactly the entry speed the slingshot wants.
+
+export interface LsParams {
+  aAccel: number; // m/s²
+  aBrake: number; // m/s²
+  vMax: number; // m/s
+  vArrive: number; // m/s — speed at the capture-ring handoff
+  vDrift: number; // m/s — speed a cancelled cruise bleeds down to (landable)
+  steerMax: number; // rad — how far mid-cruise steering can deflect the path
+  flybyRadiusFactor: number; // arrival aims this many radii off-center (sling entry)
+}
+
+export const DEFAULT_LS_PARAMS: LsParams = {
+  aAccel: 5_000,
+  aBrake: 12_000,
+  vMax: 150_000,
+  vArrive: 4_000,
+  vDrift: 300,
+  steerMax: 0.18,
+  flybyRadiusFactor: 2.5,
+};
+
+export interface LsTarget {
+  position: Vec3;
+  radius: number;
+  captureRadius: number;
+}
+
+export interface LsStepResult {
+  pos: Vec3;
+  vel: Vec3;
+  done: boolean; // reached the capture ring — hand off to capture/descent
+}
+
+const clamp1 = (v: number): number => Math.max(-1, Math.min(1, v));
+
+export function lightspeedStep(
+  pos: Vec3,
+  vel: Vec3,
+  target: LsTarget,
+  steer: { x: number; y: number }, // -1..1 each
+  dt: number,
+  p: LsParams = DEFAULT_LS_PARAMS,
+): LsStepResult {
+  const toTarget = target.position.sub(pos);
+  const distToDrop = toTarget.length() - target.captureRadius;
+  const dirTo = toTarget.normalize();
+
+  // Trapezoid profile on the remaining distance: never faster than what aBrake
+  // can shed down to vArrive by the ring.
+  const vDes = Math.min(
+    p.vMax,
+    Math.sqrt(p.vArrive * p.vArrive + 2 * p.aBrake * Math.max(0, distToDrop)),
+  );
+  const speedNow = vel.length();
+  const speed =
+    speedNow < vDes
+      ? Math.min(vDes, speedNow + p.aAccel * dt)
+      : Math.max(vDes, speedNow - p.aBrake * dt);
+
+  // Predictive drop: if this step would carry us past the ring, clamp onto it.
+  // The handoff velocity aims at a flyby point offset from the body's center:
+  // a tangential-rich slingshot entry, and a safe whiff-past without a capture
+  // (a dead-center arrival at vArrive could never be braked at toy scale).
+  if (distToDrop <= speed * dt) {
+    const dropPos = pos.add(dirTo.scale(Math.max(0, distToDrop)));
+    const ref = Math.abs(dirTo.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+    const side = dirTo.cross(ref).normalize();
+    const offset = Math.min(p.flybyRadiusFactor * target.radius, 0.7 * target.captureRadius);
+    const flybyPoint = target.position.add(side.scale(offset));
+    return {
+      pos: dropPos,
+      vel: flybyPoint.sub(dropPos).normalize().scale(p.vArrive),
+      done: true,
+    };
+  }
+
+  // Small mid-cruise steering: deflect the flight direction around the to-target
+  // axis so the drop point (and the slingshot entry) can be nudged.
+  let dir = dirTo;
+  const sx = clamp1(steer.x) * p.steerMax;
+  const sy = clamp1(steer.y) * p.steerMax;
+  if (sx !== 0 || sy !== 0) {
+    const ref = Math.abs(dirTo.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+    const right = dirTo.cross(ref).normalize();
+    const up = right.cross(dirTo).normalize();
+    dir = rotateAboutAxis(rotateAboutAxis(dirTo, up, sx), right, sy).normalize();
+  }
+
+  return { pos: pos.add(dir.scale(speed * dt)), vel: dir.scale(speed), done: false };
+}
+
+// Cancelling mid-cruise: bleed speed down to vDrift so the player is left
+// drifting at a pace the landing assist can actually arrest.
+export function brakeStep(
+  vel: Vec3,
+  dt: number,
+  p: LsParams = DEFAULT_LS_PARAMS,
+): { vel: Vec3; done: boolean } {
+  const speed = vel.length();
+  if (speed <= p.vDrift) return { vel, done: true };
+  const next = Math.max(p.vDrift, speed - p.aBrake * dt);
+  return { vel: vel.normalize().scale(next), done: next <= p.vDrift };
+}
+
+// Closed-form trip-time estimate for the HUD: accelerate to a peak, cruise,
+// brake to vArrive over the remaining distance.
+export function etaSeconds(
+  distToDrop: number,
+  speed: number,
+  p: LsParams = DEFAULT_LS_PARAMS,
+): number {
+  if (distToDrop <= 0) return 0;
+  const num =
+    distToDrop + (speed * speed) / (2 * p.aAccel) + (p.vArrive * p.vArrive) / (2 * p.aBrake);
+  const vPeak = Math.min(p.vMax, Math.sqrt(num / (1 / (2 * p.aAccel) + 1 / (2 * p.aBrake))));
+  if (vPeak <= speed) return Math.max(0, (speed - p.vArrive) / p.aBrake);
+  const dAcc = (vPeak * vPeak - speed * speed) / (2 * p.aAccel);
+  const dBrake = (vPeak * vPeak - p.vArrive * p.vArrive) / (2 * p.aBrake);
+  const dCruise = Math.max(0, distToDrop - dAcc - dBrake);
+  return (vPeak - speed) / p.aAccel + (vPeak - p.vArrive) / p.aBrake + dCruise / vPeak;
+}

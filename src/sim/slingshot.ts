@@ -1,4 +1,4 @@
-import { Vec3 } from "./Vec3";
+import { Vec3, rotateAboutAxis } from "./Vec3";
 import { Body } from "./Body";
 
 // Gravity-bubble slingshot: flying into a body's capture radius at speed hooks
@@ -56,16 +56,6 @@ export type SlingState =
 
 export function idleSling(): SlingState {
   return { kind: "none" };
-}
-
-function rotateAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
-  // Rodrigues rotation; axis must be unit length.
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return v
-    .scale(cos)
-    .add(axis.cross(v).scale(sin))
-    .add(axis.scale(axis.dot(v) * (1 - cos)));
 }
 
 function distanceToSegment(center: Vec3, a: Vec3, b: Vec3): number {
@@ -164,8 +154,8 @@ export function stepSwing(
   if (steer !== 0) {
     const tangent = e1.scale(-Math.sin(angle)).add(e2.scale(Math.cos(angle))).normalize();
     const tilt = steer * p.tiltRate * dt;
-    e1 = rotateAbout(e1, tangent, tilt);
-    e2 = rotateAbout(e2, tangent, tilt);
+    e1 = rotateAboutAxis(e1, tangent, tilt);
+    e2 = rotateAboutAxis(e2, tangent, tilt);
   }
 
   blend = Math.min(1, blend + dt / p.blendTime);

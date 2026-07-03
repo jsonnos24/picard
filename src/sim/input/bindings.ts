@@ -9,7 +9,7 @@ export type Intent =
   | "rollRight"
   | "toggleEngine"
   | "openMap"
-  | "warp"
+  | "lightspeed"
   | "toggleExit"
   | "toggleCamera"
   | "walkForward"
@@ -17,8 +17,6 @@ export type Intent =
   | "walkLeft"
   | "walkRight"
   | "jump"
-  | "warpFaster"
-  | "warpSlower"
   | "landingAssist";
 
 export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
@@ -32,10 +30,8 @@ export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   ArrowDown: ["pitchDown"],
   Space: ["toggleEngine", "jump"],
   KeyM: ["openMap"],
-  KeyJ: ["warp"],
+  KeyJ: ["lightspeed"],
   KeyF: ["toggleExit"],
   KeyC: ["toggleCamera"],
-  Period: ["warpFaster"], // ">" steps time-warp up
-  Comma: ["warpSlower"], // "<" steps time-warp down
   KeyL: ["landingAssist"], // toggle auto-descent / soft-landing assist
 };

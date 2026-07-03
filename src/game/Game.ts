@@ -29,9 +29,14 @@ import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
-import { warpTo } from "../sim/WarpDrive";
+import {
+  DEFAULT_LS_PARAMS,
+  lightspeedStep,
+  brakeStep,
+  etaSeconds,
+} from "../sim/lightspeed";
 import { createWarpEffect } from "../render/scene/warpEffect";
-import { WarpSeq, idleWarp, startWarp, stepWarp } from "./feel/warpSequence";
+import { LsSeq, idleSeq, startCharge, endCruise, stepLsSeq } from "./feel/lightspeedSequence";
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
 import { skimIntensity } from "./feel/skim";
@@ -57,13 +62,14 @@ export class Game {
   private phase: Phase = initialPhase();
   private missionElapsed = 0; // simulated seconds since leaving the Earth pad
   private assistOn = false; // landing assist: auto-orient upright + descent-rate limiter
-  private static readonly WARP_LEVELS = [1, 4, 10, 25, 100];
   private hud!: HUD;
   private navmap!: NavMap;
   private warpFx!: { update(cameraPos: THREE.Vector3, tunnel: number, flash: number): void };
-  private warpSeq: WarpSeq = idleWarp();
-  private pendingWarpTarget: Body | null = null;
-  private warpFovScale = 1;
+  private lsSeq: LsSeq = idleSeq();
+  private lsTargetName: string | null = null; // pending (charging) or active cruise target
+  private cruising = false;
+  private lsBraking = false; // cancelled mid-cruise: bleeding speed back down
+  private lsFovScale = 1;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
@@ -126,6 +132,40 @@ export class Game {
     }
 
     const dt = FIXED_DT;
+
+    // Lightspeed cruise: the profile drives the ship directly (gravity is
+    // negligible at these speeds); hands off at the target's capture ring.
+    if (this.cruising && this.lsTargetName) {
+      const target = findBody(this.bodies, this.lsTargetName);
+      const steer = {
+        x: (this.input.isActive("yawRight") ? 1 : 0) - (this.input.isActive("yawLeft") ? 1 : 0),
+        y: (this.input.isActive("pitchUp") ? 1 : 0) - (this.input.isActive("pitchDown") ? 1 : 0),
+      };
+      const r = lightspeedStep(this.ship.position, this.ship.velocity, target, steer, dt);
+      this.ship.position = r.pos;
+      this.ship.velocity = r.vel;
+      this.ship.throttle = 0;
+      this.setOrient(r.vel.normalize());
+      this.angular = zeroAngular();
+      if (r.done) {
+        this.cruising = false;
+        this.lsTargetName = null;
+        this.lsSeq = endCruise(this.lsSeq);
+      }
+      this.updatePhaseFromAltitude();
+      return;
+    }
+
+    // Cancelled cruise: coast while braking down to a sane drift speed.
+    if (this.lsBraking) {
+      const b = brakeStep(this.ship.velocity, dt);
+      this.ship.velocity = b.vel;
+      this.ship.position = this.ship.position.add(b.vel.scale(dt));
+      if (b.done) this.lsBraking = false;
+      this.updatePhaseFromAltitude();
+      return;
+    }
+
     if (this.assistOn && (this.phase.kind === "space" || this.phase.kind === "descending")) {
       // Landing assist drives orientation + throttle this step.
       this.applyLandingAssist();
@@ -181,6 +221,16 @@ export class Game {
     }
   }
 
+  private updatePhaseFromAltitude(): void {
+    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    this.phase = nextPhase({
+      phase: this.phase,
+      altitude: pb.altitude,
+      primary: { name: pb.body.name, radius: pb.body.radius, landable: pb.body.landable },
+      launched: pb.altitude > LAUNCH_CLEAR,
+    });
+  }
+
   private setOrient(dir: Vec3): void {
     this.ship.orientation = dir;
     this.quat = new THREE.Quaternion().setFromUnitVectors(
@@ -189,65 +239,56 @@ export class Game {
     );
   }
 
-  // Landing assist (auto-descent + soft touchdown). Two phases driven by a
-  // "safe speed" = the fastest descent we can still arrest before the surface:
-  //   safeSpeed = sqrt(2 * aDec * distanceToSurface).
-  // If we're slower than that, thrust toward the planet to descend faster;
-  // otherwise thrust away to brake — which naturally eases to a gentle, upright
-  // (tilt 0) touchdown.
+  // Landing assist (auto-descent + soft touchdown): a velocity-vector autopilot.
+  // Tracks an altitude-aware descent-rate target (a fraction of the arrestable
+  // speed, sqrt(2·aDec·dist), so we can always stop before the surface) while
+  // cancelling sideways drift — one thrust command handles a vertical drop and
+  // a fast flyby arrival alike, easing to a gentle, upright touchdown.
   private applyLandingAssist(): void {
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
     const vUp = this.ship.velocity.dot(pb.up);
-    const speed = Math.max(0, -vUp); // descent speed (m/s)
+    const vHoriz = this.ship.velocity.sub(pb.up.scale(vUp));
     const gLocal = gravityAccel(this.ship.position, this.bodies).length();
     const aMax = this.ship.maxThrust / this.ship.mass;
     const aDec = Math.max(0.5, aMax - gLocal); // net deceleration available, engine up
     const distToGo = Math.max(0, pb.altitude - this.padHeight);
-    // Altitude-aware target: a fraction of the arrestable speed (always leaves
-    // margin to stop before the surface). Gates tuned for km-scale toy planets.
     let targetSpeed = Math.min(Math.sqrt(2 * aDec * distToGo) * 0.6, 400);
     // Force a slow, gentle final approach so touchdown is well under the safe limit.
     if (pb.altitude < 250) targetSpeed = Math.min(targetSpeed, 18);
     if (pb.altitude < 60) targetSpeed = Math.min(targetSpeed, 4);
+    const targetVS = -Math.max(2, targetSpeed);
 
-    if (speed < targetSpeed - 8 && pb.altitude > this.padHeight + 50) {
-      // Build descent speed toward the target: engine toward planet (coast near target).
-      this.setOrient(pb.up.scale(-1));
-      this.ship.throttle = Math.max(0, Math.min(0.5, (targetSpeed - speed) * 0.02));
-    } else {
-      // Brake / hold: engine away from the planet, track the shrinking safe speed
-      // down to a gentle, upright touchdown.
-      this.setOrient(pb.up);
-      const targetVS = -Math.max(2, targetSpeed);
-      const desiredAccel = (targetVS - vUp) * 2.0;
-      this.ship.throttle = Math.max(0, Math.min(1, (desiredAccel + gLocal) / aMax));
+    // Desired acceleration: track the descent rate, null the drift, fight gravity.
+    const cmd = pb.up.scale((targetVS - vUp) * 2.0 + gLocal).sub(vHoriz.scale(1.5));
+    const mag = cmd.length();
+    if (mag < 0.3) {
+      this.ship.throttle = 0;
+      return;
     }
+    this.setOrient(cmd.scale(1 / mag));
+    this.ship.throttle = Math.max(0, Math.min(1, mag / aMax));
   }
 
   private frame = (t: number): void => {
     const dt = this.lastTime === 0 ? 0 : (t - this.lastTime) / 1000;
     this.lastTime = t;
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
-    if (this.input.consumePressed("warp")) this.doWarp();
+    if (this.input.consumePressed("lightspeed")) this.toggleLightspeed();
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
     if (this.input.consumePressed("toggleCamera")) this.rig.toggleDownView();
-    if (this.input.consumePressed("warpFaster")) this.stepTimeWarp(1);
-    if (this.input.consumePressed("warpSlower")) this.stepTimeWarp(-1);
     if (this.input.consumePressed("landingAssist")) this.assistOn = !this.assistOn;
 
-    // Drive the warp leap sequence (charge → release → settle).
-    const w = stepWarp(this.warpSeq, dt);
-    this.warpSeq = w.seq;
-    this.warpFovScale = w.fovScale;
-    if (w.teleport && this.pendingWarpTarget) {
-      this.executeWarp(this.pendingWarpTarget);
-      this.pendingWarpTarget = null;
-    }
-
-    if (this.phase.kind !== "space" && this.tc.timeScale !== 1) {
-      // Manual time-warp only while cruising in space; force x1 otherwise so you
-      // can't fast-forward into a launch/descent/landing.
-      this.tc = { ...this.tc, timeScale: 1 };
+    // Drive the lightspeed cinematics (charge → burst → cruise → settle).
+    const cruiseIntensity = this.cruising
+      ? this.ship.velocity.length() / DEFAULT_LS_PARAMS.vMax
+      : 0;
+    const w = stepLsSeq(this.lsSeq, dt, cruiseIntensity);
+    this.lsSeq = w.seq;
+    this.lsFovScale = w.fovScale;
+    if (w.engage && this.lsTargetName) {
+      this.cruising = true;
+      this.lsBraking = false;
+      this.rig.resetLook();
     }
     this.dust.update(dt);
     if (this.navmap.isOpen) {
@@ -296,7 +337,7 @@ export class Game {
         this.lastAccelMag,
         this.angular,
         t / 1000,
-        this.warpFovScale,
+        this.lsFovScale,
       );
     }
 
@@ -315,6 +356,13 @@ export class Game {
   private updateHud(): void {
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
     const vUp = this.ship.velocity.dot(pb.up);
+    let lightspeedEta: number | null = null;
+    if (this.cruising && this.lsTargetName) {
+      const target = findBody(this.bodies, this.lsTargetName);
+      const distToDrop =
+        target.position.sub(this.ship.position).length() - target.captureRadius;
+      lightspeedEta = etaSeconds(distToDrop, this.ship.velocity.length());
+    }
     this.hud.update({
       phase: phaseLabel(this.phase),
       altitude: pb.altitude,
@@ -322,7 +370,7 @@ export class Game {
       verticalSpeed: vUp,
       throttle: this.ship.throttle,
       warning: vUp < -20 && pb.altitude < 500 ? "HIGH DESCENT RATE" : null,
-      timeScale: this.tc.timeScale,
+      lightspeedEta,
       missionSeconds: this.missionElapsed,
       assistOn: this.assistOn,
     });
@@ -360,38 +408,25 @@ export class Game {
     this.assistOn = false;
   }
 
-  // Cycle the time-warp multiplier through WARP_LEVELS (only meaningful in space;
-  // the frame loop forces x1 outside InSpace).
-  private stepTimeWarp(dir: number): void {
-    if (this.phase.kind !== "space") return;
-    const levels = Game.WARP_LEVELS;
-    const i = levels.indexOf(this.tc.timeScale);
-    const next = levels[Math.max(0, Math.min(levels.length - 1, (i < 0 ? 0 : i) + dir))];
-    this.tc = { ...this.tc, timeScale: next };
-  }
-
-  private doWarp(): void {
-    if (this.warpSeq.phase !== "idle") return; // already warping
+  private toggleLightspeed(): void {
+    if (this.cruising) {
+      // Cancel: wind the cinematics down and bleed speed off.
+      this.cruising = false;
+      this.lsTargetName = null;
+      this.lsBraking = true;
+      this.lsSeq = endCruise(this.lsSeq);
+      return;
+    }
+    if (this.lsSeq.phase !== "idle") return; // already charging
     const name = this.navmap.targetName;
     if (!name) return;
     const k = this.phase.kind;
     if (k !== "space" && k !== "launching" && k !== "descending") return;
-    const target = this.bodies.find((b) => b.name === name);
-    if (!target) return;
-    this.pendingWarpTarget = target;
-    this.warpSeq = startWarp();
-  }
-
-  private executeWarp(target: Body): void {
-    this.ship = warpTo(this.ship, target);
-    const o = this.ship.orientation;
-    this.quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(o.x, o.y, o.z).normalize(),
-    );
-    this.angular = zeroAngular();
-    this.rig.resetLook();
-    this.phase = { kind: "space" };
+    const target = findBody(this.bodies, name);
+    // Only meaningful when the target's ring is still ahead of us.
+    if (target.position.sub(this.ship.position).length() <= target.captureRadius) return;
+    this.lsTargetName = name;
+    this.lsSeq = startCharge();
   }
 
   private toggleExit(): void {
