@@ -66,7 +66,7 @@ describe("tryCapture", () => {
 
   it("does not re-capture while a release cooldown is ticking", () => {
     const { pos, vel } = entryAt(mars, 4000);
-    const cooling: SlingState = { kind: "released", cooldown: 1 };
+    const cooling: SlingState = { kind: "released", bodyName: "Mars", cooldown: 1 };
     expect(tryCapture(cooling, pos, vel, mars, fallback, DT, P)).toBe(cooling);
   });
 
@@ -180,6 +180,7 @@ describe("releaseFling", () => {
     expect(fling.velocity.normalize().dot(tangent)).toBeCloseTo(1, 6);
     expect(fling.snapped).toBe(false);
     expect(fling.state.kind).toBe("released");
+    expect((fling.state as Extract<SlingState, { kind: "released" }>).bodyName).toBe("Mars");
   });
 
   it("snaps to the nav target inside the snap cone", () => {
@@ -203,15 +204,52 @@ describe("releaseFling", () => {
 });
 
 describe("tickSling", () => {
-  it("counts the release cooldown down to none", () => {
-    let s: SlingState = { kind: "released", cooldown: 0.1 };
-    for (let i = 0; i < 12; i++) s = tickSling(s, DT);
+  const outside = mars.position.add(new Vec3(mars.captureRadius * 2, 0, 0));
+  const inside = mars.position.add(new Vec3(mars.captureRadius * 0.5, 0, 0));
+
+  it("clears to none once the cooldown passes AND the ship exits the bubble", () => {
+    let s: SlingState = { kind: "released", bodyName: "Mars", cooldown: 0.1 };
+    for (let i = 0; i < 12; i++) s = tickSling(s, DT, outside, bodies);
+    expect(s.kind).toBe("none");
+  });
+
+  it("stays released inside the bubble even after the cooldown — no instant re-hook", () => {
+    let s: SlingState = { kind: "released", bodyName: "Mars", cooldown: 0.1 };
+    for (let i = 0; i < 60; i++) s = tickSling(s, DT, inside, bodies);
+    expect(s.kind).toBe("released");
+    // ...and clears as soon as the ship leaves.
+    s = tickSling(s, DT, outside, bodies);
     expect(s.kind).toBe("none");
   });
 
   it("leaves other states alone", () => {
     const s = idleSling();
-    expect(tickSling(s, DT)).toBe(s);
+    expect(tickSling(s, DT, outside, bodies)).toBe(s);
+  });
+});
+
+describe("launch capture (radial entry with a nav-target fallback plane)", () => {
+  it("a straight-up launch captured with a target-perpendicular fallback can always align", () => {
+    // Ship climbing radially out of Mars (stand-in for any home planet), with
+    // the fallback tangent built from the direction to a nav target — the way
+    // Game constructs it. The swing plane then CONTAINS the target direction,
+    // so the release tangent must sweep within the snap cone inside one lap.
+    const up = new Vec3(1, 0, 0);
+    const pos = mars.position.add(up.scale(mars.captureRadius - 1));
+    const vel = up.scale(400); // radial climb — degenerate without the fallback
+    const toTarget = new Vec3(0.3, 0, 0.954).normalize(); // some other planet
+    const rHat = up;
+    const fallbackTangent = toTarget.sub(rHat.scale(toTarget.dot(rHat))).normalize();
+    let s = tryCapture(idleSling(), pos, vel, mars, fallbackTangent, DT, P);
+    expect(s.kind).toBe("captured");
+    let bestDot = -2;
+    for (let i = 0; i < 60 * 60; i++) {
+      const r = stepSwing(s, mars, true, 0, DT, P);
+      s = r.state;
+      bestDot = Math.max(bestDot, r.vel.normalize().dot(toTarget));
+      if (bestDot >= Math.cos(P.snapCone)) break;
+    }
+    expect(bestDot).toBeGreaterThanOrEqual(Math.cos(P.snapCone));
   });
 });
 

@@ -24,6 +24,7 @@ export function createStarfield(): THREE.Points {
 export interface BodyView {
   body: Body;
   mesh: THREE.Mesh;
+  outline?: THREE.Mesh;
 }
 
 // A soft radial glow sprite for the Sun, drawn once onto a canvas.
@@ -54,6 +55,7 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
           new THREE.MeshBasicMaterial({ color: body.color })
         : toonMaterial(body.color);
     const mesh = new THREE.Mesh(geo, mat);
+    let outline: THREE.Mesh | undefined;
     if (body.kind === "star") {
       // Sunlight radiates from the star itself; no-falloff so the outer planets
       // read just as brightly (cartoon, not photometry).
@@ -70,7 +72,7 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
       glow.scale.setScalar(body.radius * 7);
       mesh.add(glow);
     } else {
-      addOutline(mesh, 1.02);
+      outline = addOutline(mesh, 1.02);
     }
     if (body.rings) {
       const ringGeo = new THREE.RingGeometry(body.rings.inner, body.rings.outer, 64);
@@ -85,13 +87,23 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
       mesh.add(rings);
     }
     scene.add(mesh);
-    return { body, mesh };
+    return { body, mesh, outline };
   });
 }
 
-export function updateBodies(views: BodyView[], fo: FloatingOrigin): void {
+export function updateBodies(
+  views: BodyView[],
+  fo: FloatingOrigin,
+  cameraPos?: THREE.Vector3,
+): void {
   for (const view of views) {
     const p = toRender(fo, view.body.position);
     view.mesh.position.set(p.x, p.y, p.z);
+    if (view.outline && cameraPos) {
+      // The ink line is a planet-scale shell — hide it while the camera is
+      // near/inside it, or it swallows the whole sky at ground level.
+      const dist = view.mesh.position.distanceTo(cameraPos);
+      view.outline.visible = dist > view.body.radius * 1.25;
+    }
   }
 }

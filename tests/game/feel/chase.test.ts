@@ -15,7 +15,7 @@ const up = new Vec3(0, 0, 1);
 
 describe("chaseFrame", () => {
   it("sits behind and above the ship, looking ahead", () => {
-    const f = chaseFrame(shipPos, fwd, up, 0, null, P);
+    const f = chaseFrame(shipPos, fwd, up, 0, null, null, P);
     const rel = f.camPos.sub(shipPos);
     expect(rel.dot(fwd)).toBeLessThan(0); // behind
     expect(rel.dot(up)).toBeGreaterThan(0); // above
@@ -23,9 +23,9 @@ describe("chaseFrame", () => {
   });
 
   it("pulls back with speed, saturating at vRef", () => {
-    const slow = chaseFrame(shipPos, fwd, up, 0, null, P);
-    const fast = chaseFrame(shipPos, fwd, up, P.vRef, null, P);
-    const faster = chaseFrame(shipPos, fwd, up, P.vRef * 100, null, P);
+    const slow = chaseFrame(shipPos, fwd, up, 0, null, null, P);
+    const fast = chaseFrame(shipPos, fwd, up, P.vRef, null, null, P);
+    const faster = chaseFrame(shipPos, fwd, up, P.vRef * 100, null, null, P);
     const d = (f: { camPos: Vec3 }): number => f.camPos.sub(shipPos).length();
     expect(d(fast)).toBeGreaterThan(d(slow));
     expect(d(faster)).toBeCloseTo(d(fast), 6);
@@ -37,8 +37,8 @@ describe("chaseFrame", () => {
       normal: new Vec3(0, 0, 1),
       bodyRadius: 2000,
     };
-    const plain = chaseFrame(shipPos, fwd, up, 4000, null, P);
-    const slung = chaseFrame(shipPos, fwd, up, 4000, sling, P);
+    const plain = chaseFrame(shipPos, fwd, up, 4000, null, null, P);
+    const slung = chaseFrame(shipPos, fwd, up, 4000, sling, null, P);
     const biasGain =
       slung.camPos.sub(shipPos).dot(sling.normal) - plain.camPos.sub(shipPos).dot(sling.normal);
     expect(biasGain).toBeGreaterThan(0);
@@ -49,13 +49,53 @@ describe("chaseFrame", () => {
   it("produces finite output for any speed and degenerate sling normals", () => {
     const sling: SlingView = { center: shipPos, normal: new Vec3(0, 1, 0), bodyRadius: 1 };
     for (const speed of [0, 1e9, NaN]) {
-      const f = chaseFrame(shipPos, fwd, up, speed, sling, P);
+      const f = chaseFrame(shipPos, fwd, up, speed, sling, null, P);
       for (const v of [f.camPos, f.lookAt]) {
         expect(Number.isFinite(v.x)).toBe(true);
         expect(Number.isFinite(v.y)).toBe(true);
         expect(Number.isFinite(v.z)).toBe(true);
       }
     }
+  });
+
+  // The launch-pad regression: a nose-up rocket must never put the camera
+  // underground ("behind" the ship is straight down into the planet).
+  it("never frames a landed, nose-up ship from underground", () => {
+    const radius = 3000;
+    const center = new Vec3(0, 0, 0);
+    const padShip = new Vec3(0, radius + 7, 0); // north-pole pad
+    const noseUp = new Vec3(0, 1, 0);
+    const shipUp = new Vec3(0, 0, 1);
+    const ground = { center, radius, up: new Vec3(0, 1, 0), altitude: 0 };
+    const f = chaseFrame(padShip, noseUp, shipUp, 0, null, ground, P);
+    expect(f.camPos.sub(center).length()).toBeGreaterThan(radius); // outside the planet
+    expect(f.camPos.dot(ground.up)).toBeGreaterThan(padShip.dot(ground.up)); // above the ship
+    expect(f.groundness).toBeCloseTo(1, 6);
+  });
+
+  it("hard-clamps the camera outside the surface even in weird attitudes", () => {
+    const radius = 3000;
+    const center = new Vec3(0, 0, 0);
+    const ship = new Vec3(0, radius + 30, 0);
+    const noseDown = new Vec3(0, -1, 0); // diving straight at the pad
+    const ground = { center, radius, up: new Vec3(0, 1, 0), altitude: 30 };
+    const f = chaseFrame(ship, noseDown, new Vec3(0, 0, 1), 200, null, ground, P);
+    expect(f.camPos.sub(center).length()).toBeGreaterThanOrEqual(radius + P.surfaceMargin - 1e-6);
+  });
+
+  it("ground framing fades out with altitude", () => {
+    const radius = 3000;
+    const center = new Vec3(0, 0, 0);
+    const high = chaseFrame(
+      new Vec3(0, radius + P.groundAltRef * 2, 0),
+      fwd,
+      up,
+      100,
+      null,
+      { center, radius, up: new Vec3(0, 1, 0), altitude: P.groundAltRef * 2 },
+      P,
+    );
+    expect(high.groundness).toBe(0);
   });
 });
 

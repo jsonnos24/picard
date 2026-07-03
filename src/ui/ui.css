@@ -4,7 +4,10 @@
        text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
 #hud .warn { color: #f55; font-weight: bold; }
 #hud .warp { color: #6cf; font-weight: bold; }
+#hud .hint { color: #fd6; }
 #hud .row b { color: #cef; }
+/* Touch players get their instructions from the context button instead. */
+@media (pointer: coarse) { #hud .hint { display: none !important; } }
 
 #controls { position: absolute; top: 16px; right: 16px; font: 12px/1.55 "Courier New", monospace;
             color: #9cf; background: rgba(0,0,20,0.4); border: 1px solid #2a3; padding: 8px 12px;

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { fovForSpeed, FOV_BASE } from "../game/feel/fov";
 import { shakeOffset, gLeanOffset } from "../game/feel/shake";
 import { AngularState } from "../game/feel/turning";
-import { chaseFrame, smoothToward, SlingView } from "../game/feel/chase";
+import { chaseFrame, smoothToward, SlingView, GroundView } from "../game/feel/chase";
 import { Vec3 } from "../sim/Vec3";
 
 export type CameraMode = "chase" | "cockpit";
@@ -79,6 +79,7 @@ export class CameraRig {
     speed: number,
     dt: number,
     sling: SlingView | null,
+    ground: GroundView | null,
     warpFovScale = 1,
   ): void {
     const fwd3 = new THREE.Vector3(0, 1, 0).applyQuaternion(shipQuat); // nose
@@ -90,13 +91,20 @@ export class CameraRig {
       new Vec3(up3.x, up3.y, up3.z),
       speed,
       sling,
+      ground,
     );
     this.chasePos = this.chasePos ? smoothToward(this.chasePos, frame.camPos, 6, dt) : frame.camPos;
     this.chaseLook = this.chaseLook
       ? smoothToward(this.chaseLook, frame.lookAt, 10, dt)
       : frame.lookAt;
     this.camera.position.set(this.chasePos.x, this.chasePos.y, this.chasePos.z);
-    this.camera.up.copy(up3);
+    // Near the ground, planet-up keeps the horizon level; in space, ship-up.
+    if (ground && frame.groundness > 0) {
+      const pu = new THREE.Vector3(ground.up.x, ground.up.y, ground.up.z);
+      this.camera.up.copy(up3.lerp(pu, frame.groundness).normalize());
+    } else {
+      this.camera.up.copy(up3);
+    }
     this.camera.lookAt(this.chaseLook.x, this.chaseLook.y, this.chaseLook.z);
     this.applyFov(speed, warpFovScale);
   }

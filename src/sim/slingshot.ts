@@ -33,7 +33,7 @@ export const DEFAULT_SLING_PARAMS: SlingParams = {
   swingDecay: 250,
   flingBoost: 1.5,
   blendTime: 0.4,
-  snapCone: 0.17,
+  snapCone: 0.25,
   tiltRate: 0.5,
   cooldown: 1.5,
 };
@@ -52,7 +52,7 @@ export type SlingState =
       entryPos: Vec3;
       entryVel: Vec3;
     }
-  | { kind: "released"; cooldown: number };
+  | { kind: "released"; bodyName: string; cooldown: number };
 
 export function idleSling(): SlingState {
   return { kind: "none" };
@@ -203,16 +203,20 @@ export function releaseFling(
     }
   }
   return {
-    state: { kind: "released", cooldown: p.cooldown },
+    state: { kind: "released", bodyName: state.bodyName, cooldown: p.cooldown },
     velocity: dir.scale(state.speed * p.flingBoost),
     snapped,
   };
 }
 
-export function tickSling(state: SlingState, dt: number): SlingState {
+// A release only clears once the cooldown has passed AND the ship has left the
+// bubble it was flung from — otherwise a slow fling gets instantly re-hooked.
+export function tickSling(state: SlingState, dt: number, pos: Vec3, bodies: Body[]): SlingState {
   if (state.kind !== "released") return state;
-  const cooldown = state.cooldown - dt;
-  return cooldown <= 0 ? { kind: "none" } : { kind: "released", cooldown };
+  const cooldown = Math.max(0, state.cooldown - dt);
+  const body = bodies.find((b) => b.name === state.bodyName);
+  const outside = !body || pos.sub(body.position).length() > body.captureRadius;
+  return cooldown <= 0 && outside ? { kind: "none" } : { ...state, cooldown };
 }
 
 // The Sun never captures — it shoves. Outward acceleration ramping linearly

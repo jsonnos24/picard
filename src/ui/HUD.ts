@@ -9,6 +9,7 @@ export interface HudState {
   sling: { winding: boolean; speed: number; aligned: boolean } | null; // captured in a gravity ring
   missionSeconds: number; // simulated seconds since leaving Earth
   assistOn: boolean; // landing assist engaged
+  hint: string | null; // context-sensitive "what do I do next" line (keyboard wording)
 }
 
 function fmt(n: number): string {
@@ -64,6 +65,7 @@ export class HUD {
       ["sling", "row warp"],
       ["assist", "row warp"],
       ["warning", "row warn"],
+      ["hint", "row hint"],
     ] as const) {
       const row = document.createElement("div");
       row.className = className;
@@ -124,5 +126,6 @@ export class HUD {
     );
     this.setStatus("assist", s.assistOn ? "🛬 LANDING ASSIST" : null);
     this.setStatus("warning", s.warning);
+    this.setStatus("hint", s.hint ? `▶ ${s.hint}` : null);
   }
 }

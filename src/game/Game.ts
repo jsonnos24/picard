@@ -200,7 +200,7 @@ export class Game {
       return;
     }
 
-    this.sling = tickSling(this.sling, dt);
+    this.sling = tickSling(this.sling, dt, this.ship.position, this.bodies);
 
     // Captured in a gravity ring: the swing rail drives the ship.
     if (this.sling.kind === "captured") {
@@ -210,7 +210,11 @@ export class Game {
       if (this.assistOn) {
         // Tap-to-land while captured: the ring "absorbs" the swing momentum and
         // drops the ship gently — capped so the assist can always arrest it.
-        this.sling = { kind: "released", cooldown: DEFAULT_SLING_PARAMS.cooldown };
+        this.sling = {
+          kind: "released",
+          bodyName: this.sling.bodyName,
+          cooldown: DEFAULT_SLING_PARAMS.cooldown,
+        };
         const drop = Math.min(this.ship.velocity.length() * 0.3, 250);
         this.ship.velocity = this.ship.velocity.normalize().scale(drop);
         this.slingHeldPrev = false;
@@ -262,12 +266,25 @@ export class Game {
     const next = verletStep(toMotionState(this.ship), dt, accel);
     this.ship = applyMotionState(this.ship, next);
 
-    // Fast flight into a gravity ring hooks the ship onto the swing rail.
-    if (this.phase.kind === "space" && this.sling.kind === "none" && !this.assistOn) {
+    // Fast flight into a gravity ring hooks the ship onto the swing rail —
+    // but never mid-lightspeed (the drop profile owns arrivals).
+    const lsBusy =
+      this.cruising || this.lsBraking || this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst";
+    if (this.phase.kind === "space" && this.sling.kind === "none" && !this.assistOn && !lsBusy) {
       const right3 = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
       const camRight = new Vec3(right3.x, right3.y, right3.z);
+      const navDir = this.navTargetDirection();
       for (const body of this.bodies) {
-        const s = tryCapture(this.sling, this.ship.position, this.ship.velocity, body, camRight, dt);
+        // Radial entries (e.g. straight up off the pad) need a fallback swing
+        // plane: build it to CONTAIN the nav target, so a release can always
+        // line up with where the player wants to go.
+        let fallback = camRight;
+        if (navDir) {
+          const rHat = this.ship.position.sub(body.position).normalize();
+          const perp = navDir.sub(rHat.scale(navDir.dot(rHat)));
+          if (perp.length() > 0.05) fallback = perp.normalize();
+        }
+        const s = tryCapture(this.sling, this.ship.position, this.ship.velocity, body, fallback, dt);
         if (s.kind === "captured") {
           this.sling = s;
           this.slingHeldPrev = false;
@@ -394,7 +411,7 @@ export class Game {
 
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
-    updateBodies(this.views, this.fo);
+    updateBodies(this.views, this.fo, this.renderer.camera.position);
     this.gravityRings.update(
       this.fo,
       this.sling.kind === "captured" ? this.sling.bodyName : null,
@@ -437,12 +454,21 @@ export class Game {
           bodyRadius: body.radius,
         };
       }
+      const pb = selectPrimaryBody(this.ship.position, this.bodies);
+      const gc = toRender(this.fo, pb.body.position);
+      const ground = {
+        center: new Vec3(gc.x, gc.y, gc.z),
+        radius: pb.body.radius,
+        up: pb.up,
+        altitude: pb.altitude,
+      };
       this.rig.setChase(
         shipVec,
         this.quat,
         this.ship.velocity.length(),
         dt,
         slingView,
+        ground,
         this.lsFovScale,
       );
     } else {
@@ -518,7 +544,33 @@ export class Game {
       sling,
       missionSeconds: this.missionElapsed,
       assistOn: this.assistOn,
+      hint: this.keyboardHint(),
     });
+  }
+
+  // The one thing the player most likely wants to do next, in keyboard terms.
+  // (Touch players get the same guidance from the context button.)
+  private keyboardHint(): string | null {
+    if (this.sling.kind === "captured") {
+      return this.input.isActive("slingHold")
+        ? "release SPACE to fling!"
+        : "hold SPACE to swing · L to land";
+    }
+    if (this.cruising) return "J to drop out early";
+    if (this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst") return null;
+    switch (this.phase.kind) {
+      case "landed":
+        return "hold W to launch · F to hop out";
+      case "launching":
+      case "space":
+        return this.navmap.targetName
+          ? `J — lightspeed to ${this.navmap.targetName}`
+          : "M — open the map, tap a planet";
+      case "descending":
+        return this.assistOn ? null : "L — auto-land";
+      case "onFoot":
+        return "WASD walk · SPACE jump · F board";
+    }
   }
 
   private updateMarker(): void {
