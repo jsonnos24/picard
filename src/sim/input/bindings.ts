@@ -7,7 +7,7 @@ export type Intent =
   | "yawRight"
   | "rollLeft"
   | "rollRight"
-  | "toggleEngine"
+  | "slingHold"
   | "openMap"
   | "lightspeed"
   | "toggleExit"
@@ -28,7 +28,7 @@ export const DEFAULT_BINDINGS: Record<string, Intent[]> = {
   KeyE: ["rollRight"],
   ArrowUp: ["pitchUp"],
   ArrowDown: ["pitchDown"],
-  Space: ["toggleEngine", "jump"],
+  Space: ["slingHold", "jump"],
   KeyM: ["openMap"],
   KeyJ: ["lightspeed"],
   KeyF: ["toggleExit"],

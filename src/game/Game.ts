@@ -12,6 +12,17 @@ import {
   thrustAccel as shipThrustAccel,
 } from "../sim/Spacecraft";
 import { shipAccelFn } from "../sim/forces";
+import {
+  SlingState,
+  DEFAULT_SLING_PARAMS,
+  idleSling,
+  tryCapture,
+  stepSwing,
+  releaseFling,
+  tickSling,
+  sunRepel,
+} from "../sim/slingshot";
+import { createGravityRings } from "../render/scene/gravityRings";
 import { gravityAccel } from "../sim/gravity";
 import { verletStep } from "../sim/integrator";
 import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
@@ -36,7 +47,14 @@ import {
   etaSeconds,
 } from "../sim/lightspeed";
 import { createWarpEffect } from "../render/scene/warpEffect";
-import { LsSeq, idleSeq, startCharge, endCruise, stepLsSeq } from "./feel/lightspeedSequence";
+import {
+  LsSeq,
+  idleSeq,
+  startCharge,
+  startBurst,
+  endCruise,
+  stepLsSeq,
+} from "./feel/lightspeedSequence";
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
 import { skimIntensity } from "./feel/skim";
@@ -70,6 +88,11 @@ export class Game {
   private cruising = false;
   private lsBraking = false; // cancelled mid-cruise: bleeding speed back down
   private lsFovScale = 1;
+  private sling: SlingState = idleSling();
+  private slingHeldPrev = false;
+  private lsGraceUntil = -1; // perfect release: lightspeed skips the charge until this time
+  private gravityRings!: { update(fo: FloatingOrigin, capturedName: string | null, t: number): void };
+  private readonly sun: Body;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
@@ -79,7 +102,9 @@ export class Game {
     this.renderer = new Renderer(canvas);
     this.rig = new CameraRig(this.renderer.camera);
     this.bodies = createSolarSystem();
+    this.sun = findBody(this.bodies, "Sun");
     this.views = createBodies(this.renderer.scene, this.bodies);
+    this.gravityRings = createGravityRings(this.renderer.scene, this.bodies);
     this.shipGroup = createShip(this.renderer.scene).group;
     this.fo = createFloatingOrigin();
     this.tc = createTimeControl();
@@ -166,6 +191,48 @@ export class Game {
       return;
     }
 
+    this.sling = tickSling(this.sling, dt);
+
+    // Captured in a gravity ring: the swing rail drives the ship.
+    if (this.sling.kind === "captured") {
+      const body = findBody(this.bodies, this.sling.bodyName);
+      const held = this.input.isActive("slingHold");
+
+      if (this.assistOn) {
+        // Tap-to-land while captured: the ring "absorbs" the swing momentum and
+        // drops the ship gently — capped so the assist can always arrest it.
+        this.sling = { kind: "released", cooldown: DEFAULT_SLING_PARAMS.cooldown };
+        const drop = Math.min(this.ship.velocity.length() * 0.3, 250);
+        this.ship.velocity = this.ship.velocity.normalize().scale(drop);
+        this.slingHeldPrev = false;
+        return;
+      }
+
+      if (this.slingHeldPrev && !held) {
+        // The hammer throw: fling along the tangent, snapping to the nav target.
+        const fling = releaseFling(this.sling, body, this.navTargetDirection());
+        this.sling = fling.state;
+        this.ship.velocity = fling.velocity;
+        this.setOrient(fling.velocity.normalize());
+        if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2; // chain reward
+        this.slingHeldPrev = false;
+        return;
+      }
+
+      const steer =
+        (this.input.isActive("pitchUp") ? 1 : 0) - (this.input.isActive("pitchDown") ? 1 : 0);
+      const r = stepSwing(this.sling, body, held, steer, dt);
+      this.sling = r.state;
+      this.ship.position = r.pos;
+      this.ship.velocity = r.vel;
+      this.ship.throttle = 0;
+      this.setOrient(r.vel.normalize());
+      this.angular = zeroAngular();
+      this.slingHeldPrev = held;
+      this.phase = { kind: "space" }; // a swing is a space activity, however low it dips
+      return;
+    }
+
     if (this.assistOn && (this.phase.kind === "space" || this.phase.kind === "descending")) {
       // Landing assist drives orientation + throttle this step.
       this.applyLandingAssist();
@@ -180,10 +247,27 @@ export class Game {
       this.ship.orientation = thrustDirection(this.quat);
     }
 
-    const accel = shipAccelFn(this.ship, this.bodies);
+    // The Sun never captures — it shoves (plus heat warnings on the HUD).
+    const base = shipAccelFn(this.ship, this.bodies);
+    const accel = (p: Vec3, v: Vec3): Vec3 => base(p, v).add(sunRepel(p, this.sun));
     this.lastAccelMag = shipThrustAccel(this.ship).length();
     const next = verletStep(toMotionState(this.ship), dt, accel);
     this.ship = applyMotionState(this.ship, next);
+
+    // Fast flight into a gravity ring hooks the ship onto the swing rail.
+    if (this.phase.kind === "space" && this.sling.kind === "none" && !this.assistOn) {
+      const right3 = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
+      const camRight = new Vec3(right3.x, right3.y, right3.z);
+      for (const body of this.bodies) {
+        const s = tryCapture(this.sling, this.ship.position, this.ship.velocity, body, camRight, dt);
+        if (s.kind === "captured") {
+          this.sling = s;
+          this.slingHeldPrev = false;
+          this.rig.resetLook();
+          break;
+        }
+      }
+    }
 
     // Landed hold: pin to the surface until thrust can beat gravity.
     // Must NOT run during Descending so Moon crash detection reads real velocity.
@@ -303,6 +387,11 @@ export class Game {
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
     updateBodies(this.views, this.fo);
+    this.gravityRings.update(
+      this.fo,
+      this.sling.kind === "captured" ? this.sling.bodyName : null,
+      t / 1000,
+    );
 
     const shipRender = toRender(this.fo, this.ship.position);
     const shipVec = new THREE.Vector3(shipRender.x, shipRender.y, shipRender.z);
@@ -363,14 +452,31 @@ export class Game {
         target.position.sub(this.ship.position).length() - target.captureRadius;
       lightspeedEta = etaSeconds(distToDrop, this.ship.velocity.length());
     }
+    let sling: { winding: boolean; speed: number; aligned: boolean } | null = null;
+    if (this.sling.kind === "captured") {
+      const navDir = this.navTargetDirection();
+      const aligned =
+        !!navDir &&
+        Math.acos(
+          Math.max(-1, Math.min(1, this.ship.velocity.normalize().dot(navDir))),
+        ) <= DEFAULT_SLING_PARAMS.snapCone;
+      sling = { winding: this.input.isActive("slingHold"), speed: this.sling.speed, aligned };
+    }
+    const inSunBubble =
+      this.ship.position.sub(this.sun.position).length() < this.sun.captureRadius;
     this.hud.update({
       phase: phaseLabel(this.phase),
       altitude: pb.altitude,
       speed: this.ship.velocity.length(),
       verticalSpeed: vUp,
       throttle: this.ship.throttle,
-      warning: vUp < -20 && pb.altitude < 500 ? "HIGH DESCENT RATE" : null,
+      warning: inSunBubble
+        ? "☀ SOLAR HEAT — PULL AWAY"
+        : vUp < -20 && pb.altitude < 500
+          ? "HIGH DESCENT RATE"
+          : null,
       lightspeedEta,
+      sling,
       missionSeconds: this.missionElapsed,
       assistOn: this.assistOn,
     });
@@ -408,6 +514,14 @@ export class Game {
     this.assistOn = false;
   }
 
+  // Unit direction from the ship to the nav target, if one is set.
+  private navTargetDirection(): Vec3 | null {
+    const name = this.navmap.targetName;
+    if (!name) return null;
+    const target = findBody(this.bodies, name);
+    return target.position.sub(this.ship.position).normalize();
+  }
+
   private toggleLightspeed(): void {
     if (this.cruising) {
       // Cancel: wind the cinematics down and bleed speed off.
@@ -417,6 +531,7 @@ export class Game {
       this.lsSeq = endCruise(this.lsSeq);
       return;
     }
+    if (this.sling.kind === "captured") return; // release the swing first
     if (this.lsSeq.phase !== "idle") return; // already charging
     const name = this.navmap.targetName;
     if (!name) return;
@@ -426,7 +541,15 @@ export class Game {
     // Only meaningful when the target's ring is still ahead of us.
     if (target.position.sub(this.ship.position).length() <= target.captureRadius) return;
     this.lsTargetName = name;
-    this.lsSeq = startCharge();
+    if (this.missionElapsed <= this.lsGraceUntil) {
+      // A perfect (snapped) sling release chains straight into the leap.
+      this.lsSeq = startBurst();
+      this.cruising = true;
+      this.lsBraking = false;
+      this.rig.resetLook();
+    } else {
+      this.lsSeq = startCharge();
+    }
   }
 
   private toggleExit(): void {

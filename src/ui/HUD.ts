@@ -6,6 +6,7 @@ export interface HudState {
   throttle: number;
   warning: string | null;
   lightspeedEta: number | null; // seconds to the drop point while cruising, else null
+  sling: { winding: boolean; speed: number; aligned: boolean } | null; // captured in a gravity ring
   missionSeconds: number; // simulated seconds since leaving Earth
   assistOn: boolean; // landing assist engaged
 }
@@ -73,6 +74,13 @@ export class HUD {
       `<div class="row">MET <b>${fmtMissionTime(s.missionSeconds)}</b></div>` +
       (s.lightspeedEta !== null
         ? `<div class="row warp">▶▶ LIGHTSPEED · ${Math.ceil(s.lightspeedEta)}s</div>`
+        : "") +
+      (s.sling
+        ? `<div class="row warp">⭗ ${
+            s.sling.winding ? "SWINGING" : "CAPTURED — HOLD SPACE"
+          } · ${(s.sling.speed / 1000).toFixed(1)} km/s${
+            s.sling.aligned ? " · ◎ RELEASE!" : ""
+          }</div>`
         : "") +
       (s.assistOn ? `<div class="row warp">🛬 LANDING ASSIST</div>` : "") +
       (s.warning ? `<div class="row warn">${s.warning}</div>` : "");

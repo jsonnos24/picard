@@ -4,7 +4,7 @@ const ROWS: [string, string][] = [
   ["↑ / ↓", "Pitch"],
   ["A / D", "Yaw"],
   ["Q / E", "Roll"],
-  ["Space", "Engine on/off · Jump (on foot)"],
+  ["Space", "Hold to swing in a gravity ring · Jump (on foot)"],
   ["Mouse", "Look (click to capture · Esc free)"],
   ["M", "Nav map — click a body to target"],
   ["J", "Lightspeed to target (again to cancel)"],
