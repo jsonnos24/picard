@@ -25,29 +25,24 @@ export interface BodyView {
   mesh: THREE.Mesh;
 }
 
-const BODY_COLORS: Record<string, number> = {
-  Earth: 0x2a6cb0,
-  Moon: 0x999999,
-};
-
 export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
   // Soft fill so shadowed hemispheres read as dim grey, not pure black.
   scene.add(new THREE.AmbientLight(0x4a4f5e, 0.6));
-  // Sun: aimed from the Earth/launch side (-x, up, +z) so the Moon's Earth-facing
-  // hemisphere — the side you warp to and descend onto — is lit, and Earth's launch
-  // pole is lit too. Warm, bright.
-  const sun = new THREE.DirectionalLight(0xfff5e8, 2.2);
-  sun.position.set(-0.4, 0.6, 0.5).normalize();
-  scene.add(sun);
 
   return bodies.map((body) => {
     const geo = new THREE.SphereGeometry(body.radius, 64, 48);
-    const mat = new THREE.MeshStandardMaterial({
-      color: BODY_COLORS[body.name] ?? 0x808080,
-      roughness: 1,
-      metalness: 0,
-    });
+    const mat =
+      body.kind === "star"
+        ? // The Sun glows on its own — unlit, and it carries the scene's light.
+          new THREE.MeshBasicMaterial({ color: body.color })
+        : new THREE.MeshStandardMaterial({ color: body.color, roughness: 1, metalness: 0 });
     const mesh = new THREE.Mesh(geo, mat);
+    if (body.kind === "star") {
+      // Sunlight radiates from the star itself; no-falloff so the outer planets
+      // read just as brightly (cartoon, not photometry).
+      const light = new THREE.PointLight(0xfff5e8, 2.2, 0, 0);
+      mesh.add(light);
+    }
     scene.add(mesh);
     return { body, mesh };
   });

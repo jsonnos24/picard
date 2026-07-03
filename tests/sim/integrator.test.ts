@@ -12,6 +12,10 @@ const center: Body = {
   radius: 1,
   position: Vec3.zero(),
   atmosphere: null,
+  kind: "planet",
+  landable: true,
+  captureRadius: 6,
+  color: 0xffffff,
 };
 
 describe("verletStep", () => {

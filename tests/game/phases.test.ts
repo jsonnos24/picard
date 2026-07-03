@@ -1,33 +1,56 @@
 import { describe, it, expect } from "vitest";
-import { nextPhase, SPACE_ALTITUDE, LAUNCH_CLEAR } from "../../src/game/phases";
+import { nextPhase, spaceAltitude, LAUNCH_CLEAR, PrimaryInfo } from "../../src/game/phases";
+import { Phase } from "../../src/sim/GameState";
 
-const base = { altitude: 0, inAtmosphere: true, primaryName: "Earth", launched: false };
+const earth: PrimaryInfo = { name: "Earth", radius: 3000, landable: true };
+const mars: PrimaryInfo = { name: "Mars", radius: 2000, landable: true };
+const sun: PrimaryInfo = { name: "Sun", radius: 20000, landable: false };
+
+const base = { altitude: 0, primary: earth, launched: false };
 
 describe("nextPhase", () => {
-  it("LandedEarth -> Launching once launched", () => {
-    expect(nextPhase({ ...base, phase: "LandedEarth", launched: false })).toBe("LandedEarth");
-    expect(nextPhase({ ...base, phase: "LandedEarth", launched: true, altitude: LAUNCH_CLEAR + 1 })).toBe("Launching");
+  it("landed -> launching once launched and clear of the pad", () => {
+    const phase: Phase = { kind: "landed", body: "Earth" };
+    expect(nextPhase({ ...base, phase, launched: false })).toEqual(phase);
+    expect(
+      nextPhase({ ...base, phase, launched: true, altitude: LAUNCH_CLEAR + 1 }),
+    ).toEqual({ kind: "launching", body: "Earth" });
   });
 
-  it("Launching -> InSpace above the space altitude", () => {
-    expect(nextPhase({ ...base, phase: "Launching", altitude: SPACE_ALTITUDE + 1, launched: true })).toBe("InSpace");
-    expect(nextPhase({ ...base, phase: "Launching", altitude: SPACE_ALTITUDE - 1, launched: true })).toBe("Launching");
+  it("launching -> space above one body-radius of altitude", () => {
+    const phase: Phase = { kind: "launching", body: "Earth" };
+    const space = spaceAltitude(earth.radius);
+    expect(nextPhase({ ...base, phase, altitude: space + 1, launched: true })).toEqual({
+      kind: "space",
+    });
+    expect(nextPhase({ ...base, phase, altitude: space - 1, launched: true })).toEqual(phase);
   });
 
-  it("InSpace -> Descending when low over the Moon", () => {
-    expect(nextPhase({ ...base, phase: "InSpace", primaryName: "Moon", altitude: SPACE_ALTITUDE - 1, inAtmosphere: false })).toBe("Descending");
-    expect(nextPhase({ ...base, phase: "InSpace", primaryName: "Moon", altitude: SPACE_ALTITUDE + 1, inAtmosphere: false })).toBe("InSpace");
+  it("space -> descending when low over any landable body", () => {
+    const phase: Phase = { kind: "space" };
+    const space = spaceAltitude(mars.radius);
+    expect(
+      nextPhase({ ...base, phase, primary: mars, altitude: space - 1 }),
+    ).toEqual({ kind: "descending", body: "Mars" });
+    expect(nextPhase({ ...base, phase, primary: mars, altitude: space + 1 })).toEqual(phase);
   });
 
-  it("Descending -> InSpace when climbing back out (abort)", () => {
-    expect(nextPhase({ ...base, phase: "Descending", primaryName: "Moon", altitude: SPACE_ALTITUDE + 1, inAtmosphere: false })).toBe("InSpace");
+  it("never descends toward the Sun, no matter how close", () => {
+    const phase: Phase = { kind: "space" };
+    expect(nextPhase({ ...base, phase, primary: sun, altitude: 100 })).toEqual(phase);
   });
 
-  it("LandedMoon has no auto-transition (stays LandedMoon)", () => {
-    expect(nextPhase({ ...base, phase: "LandedMoon", primaryName: "Moon", altitude: 0, inAtmosphere: false })).toBe("LandedMoon");
+  it("descending -> space when climbing back out (abort)", () => {
+    const phase: Phase = { kind: "descending", body: "Mars" };
+    expect(
+      nextPhase({ ...base, phase, primary: mars, altitude: spaceAltitude(mars.radius) + 1 }),
+    ).toEqual({ kind: "space" });
   });
 
-  it("OnFoot has no auto-transition (stays OnFoot)", () => {
-    expect(nextPhase({ ...base, phase: "OnFoot", primaryName: "Moon", altitude: 0, inAtmosphere: false })).toBe("OnFoot");
+  it("landed and onFoot have no auto-transitions", () => {
+    const landedMars: Phase = { kind: "landed", body: "Mars" };
+    expect(nextPhase({ ...base, phase: landedMars, primary: mars })).toEqual(landedMars);
+    const onFootMars: Phase = { kind: "onFoot", body: "Mars" };
+    expect(nextPhase({ ...base, phase: onFootMars, primary: mars })).toEqual(onFootMars);
   });
 });

@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createAstronaut, stepAstronaut } from "../../src/sim/Astronaut";
-import { createSolarSystem } from "../../src/sim/Body";
+import { realPair } from "../helpers/fixtures";
 import { Vec3 } from "../../src/sim/Vec3";
 
 // Use the Moon for 1/6-g behavior. Put astronaut on the +x surface.
 function moonSurfaceAstronaut() {
-  const [, moon] = createSolarSystem();
+  const [, moon] = realPair();
   const a = createAstronaut(new Vec3(moon.radius, 0, 0).add(moon.position));
   a.onGround = true;
   return { a, moon };

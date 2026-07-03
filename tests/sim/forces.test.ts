@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { shipAccel, shipAccelFn } from "../../src/sim/forces";
 import { createSpacecraft } from "../../src/sim/Spacecraft";
-import { createSolarSystem } from "../../src/sim/Body";
+import { realPair } from "../helpers/fixtures";
 import { gravityAccel } from "../../src/sim/gravity";
 import { thrustAccel } from "../../src/sim/Spacecraft";
 import { verletStep } from "../../src/sim/integrator";
@@ -10,7 +10,7 @@ import { Vec3 } from "../../src/sim/Vec3";
 describe("shipAccel", () => {
   it("equals gravityAccel when throttle=0 and velocity=0 (no thrust, no drag)", () => {
     // Far from all bodies — tiny gravity, definitely no drag.
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     // Position 1e10 m from origin (far beyond Moon orbit), zero velocity.
     const farPosition = new Vec3(1e10, 0, 0);
     const ship = createSpacecraft(farPosition);
@@ -27,7 +27,7 @@ describe("shipAccel", () => {
   });
 
   it("shipAccel result magnitude is near-zero far from all bodies with throttle=0 and velocity=0", () => {
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     const farPosition = new Vec3(1e10, 0, 0);
     const ship = createSpacecraft(farPosition);
     const testShip = { ...ship, throttle: 0, velocity: Vec3.zero() };
@@ -38,7 +38,7 @@ describe("shipAccel", () => {
   });
 
   it("includes thrust term when throttle=1 and evaluated far from atmosphere (drag ~0)", () => {
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     // Far from Earth's atmosphere (beyond Moon), so drag ~= 0
     const farPosition = new Vec3(1e10, 0, 0);
     const ship = createSpacecraft(farPosition);
@@ -54,7 +54,7 @@ describe("shipAccel", () => {
   });
 
   it("does NOT mutate the input ship's position or velocity", () => {
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     const position = new Vec3(1e10, 0, 0);
     const velocity = new Vec3(100, 200, 300);
     const ship = createSpacecraft(position);
@@ -76,7 +76,7 @@ describe("shipAccel", () => {
 
 describe("shipAccelFn integration with verletStep", () => {
   it("ship falls toward Earth under gravity alone over 60 steps", () => {
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     const earth = bodies[0];
     // Start 1000 km above Earth's surface (well above atmosphere ~100 km)
     // but close enough for gravity to be measurable over 60 steps
@@ -100,7 +100,7 @@ describe("shipAccelFn integration with verletStep", () => {
   });
 
   it("drag decelerates a fast-moving ship deep in atmosphere vs no-atmosphere case", () => {
-    const bodies = createSolarSystem();
+    const bodies = realPair();
     const earth = bodies[0];
 
     // Start at ~50 km altitude (dense atmosphere), moving fast tangentially

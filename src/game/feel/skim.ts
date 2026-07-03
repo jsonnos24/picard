@@ -1,6 +1,6 @@
 // src/game/feel/skim.ts
-export const SKIM_ALT = 1500;   // metres — below this, skim proximity ramps in
-export const SKIM_SPEED = 300;  // m/s — above this, skim speed factor ramps in
+export const SKIM_ALT = 600;    // metres — below this, skim proximity ramps in (toy-scale planets)
+export const SKIM_SPEED = 150;  // m/s — above this, skim speed factor ramps in
 
 // Product of a proximity factor (low altitude → 1) and a speed factor (fast → 1).
 export function skimIntensity(altitude: number, speed: number): number {

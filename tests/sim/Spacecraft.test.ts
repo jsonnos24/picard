@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createSpacecraft,
-  totalMass,
   thrustAccel,
-  burnFuel,
   toMotionState,
   applyMotionState,
 } from "../../src/sim/Spacecraft";
@@ -23,33 +21,13 @@ describe("Spacecraft", () => {
     const a = thrustAccel(s);
     expect(a.x).toBe(0);
     expect(a.z).toBe(0);
-    expect(a.y).toBeCloseTo(s.maxThrust / totalMass(s), 6);
+    expect(a.y).toBeCloseTo(s.maxThrust / s.mass, 6);
   });
 
-  it("burns fuel proportional to throttle and time", () => {
+  it("out-thrusts toy Earth's 10 m/s² with punchy arcade margin", () => {
     const s = createSpacecraft(Vec3.zero());
     s.throttle = 1;
-    const before = s.fuelMass;
-    const after = burnFuel(s, 1);
-    const mdot = (s.throttle * s.maxThrust) / s.exhaustVelocity;
-    expect(after.fuelMass).toBeCloseTo(before - mdot, 3);
-  });
-
-  it("never burns below zero fuel and makes thrust zero when empty", () => {
-    let s = createSpacecraft(Vec3.zero());
-    s.throttle = 1;
-    s.fuelMass = 0;
-    s = burnFuel(s, 10);
-    expect(s.fuelMass).toBe(0);
-    expect(thrustAccel(s).length()).toBe(0);
-  });
-
-  it("burnFuel does not mutate the input", () => {
-    const s = createSpacecraft(Vec3.zero());
-    s.throttle = 1;
-    const fuelBefore = s.fuelMass;
-    burnFuel(s, 1);
-    expect(s.fuelMass).toBe(fuelBefore);
+    expect(thrustAccel(s).length()).toBeGreaterThan(25);
   });
 });
 
@@ -71,9 +49,7 @@ describe("toMotionState / applyMotionState adapters", () => {
 
   it("applyMotionState returns a new Spacecraft with updated position and velocity", () => {
     const s = createSpacecraft(new Vec3(0, 0, 0));
-    const newPos = new Vec3(10, 20, 30);
-    const newVel = new Vec3(1, 2, 3);
-    const ms = { position: newPos, velocity: newVel };
+    const ms = { position: new Vec3(10, 20, 30), velocity: new Vec3(1, 2, 3) };
 
     const updated = applyMotionState(s, ms);
 
@@ -87,19 +63,15 @@ describe("toMotionState / applyMotionState adapters", () => {
 
   it("applyMotionState preserves all other Spacecraft fields unchanged", () => {
     const s = createSpacecraft(new Vec3(0, 0, 0));
-    const originalDryMass = s.dryMass;
-    const originalFuelMass = s.fuelMass;
+    const originalMass = s.mass;
     const originalMaxThrust = s.maxThrust;
-    const originalExhaustVelocity = s.exhaustVelocity;
     const originalOrientation = { ...s.orientation };
 
     const ms = { position: new Vec3(5, 5, 5), velocity: new Vec3(1, 1, 1) };
     const updated = applyMotionState(s, ms);
 
-    expect(updated.dryMass).toBe(originalDryMass);
-    expect(updated.fuelMass).toBe(originalFuelMass);
+    expect(updated.mass).toBe(originalMass);
     expect(updated.maxThrust).toBe(originalMaxThrust);
-    expect(updated.exhaustVelocity).toBe(originalExhaustVelocity);
     expect(updated.orientation.x).toBe(originalOrientation.x);
     expect(updated.orientation.y).toBe(originalOrientation.y);
     expect(updated.orientation.z).toBe(originalOrientation.z);

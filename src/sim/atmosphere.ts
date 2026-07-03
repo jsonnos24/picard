@@ -1,6 +1,6 @@
 import { Vec3 } from "./Vec3";
 import { Body } from "./Body";
-import { Spacecraft, totalMass } from "./Spacecraft";
+import { Spacecraft } from "./Spacecraft";
 
 const DRAG_CD = 0.5;
 const DRAG_AREA = 10; // m^2
@@ -22,7 +22,7 @@ export function dragAccel(s: Spacecraft, bodies: Body[]): Vec3 {
     if (rho === 0) continue;
     // drag force magnitude = ½ρv²·Cd·A ; acceleration opposes velocity
     const forceMag = 0.5 * rho * speed * speed * DRAG_CD * DRAG_AREA;
-    const accelMag = forceMag / totalMass(s);
+    const accelMag = forceMag / s.mass;
     acc = acc.add(s.velocity.normalize().scale(-accelMag));
   }
   return acc;

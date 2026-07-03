@@ -3,15 +3,13 @@ import { Renderer } from "../render/Renderer";
 import { createBodies, updateBodies, BodyView } from "../render/scene/bodies";
 import { createShip } from "../render/scene/ship";
 import { CameraRig } from "../render/CameraRig";
-import { createSolarSystem, Body, surfaceGravity } from "../sim/Body";
+import { createSolarSystem, findBody, Body, surfaceGravity } from "../sim/Body";
 import {
   Spacecraft,
   createSpacecraft,
   toMotionState,
   applyMotionState,
-  burnFuel,
   thrustAccel as shipThrustAccel,
-  totalMass,
 } from "../sim/Spacecraft";
 import { shipAccelFn } from "../sim/forces";
 import { gravityAccel } from "../sim/gravity";
@@ -20,7 +18,7 @@ import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
 import { Vec3 } from "../sim/Vec3";
 import { FIXED_DT } from "../sim/constants";
-import { Phase, initialPhase, transition } from "../sim/GameState";
+import { Phase, initialPhase, transition, phaseLabel } from "../sim/GameState";
 import { createInputManager, InputManager } from "../sim/input/InputManager";
 import { selectPrimaryBody } from "./primaryBody";
 import { thrustDirection } from "./attitude";
@@ -84,10 +82,11 @@ export class Game {
     window.addEventListener("keyup", (e) => this.input.handleKey(e.code, false));
 
     // Spawn on Earth's "north pole" pad (+Y), resting on the surface.
-    const earth = this.bodies[0];
-    this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
+    const earth = findBody(this.bodies, "Earth");
+    this.ship = createSpacecraft(
+      earth.position.add(new Vec3(0, earth.radius + this.padHeight, 0)),
+    );
     this.ship.orientation = new Vec3(0, 1, 0);
-    this.initialFuel = this.ship.fuelMass;
 
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
@@ -106,9 +105,9 @@ export class Game {
   }
 
   private stepSim(): void {
-    // Mission clock runs once we've left the Earth pad.
-    if (this.phase !== "LandedEarth") this.missionElapsed += FIXED_DT;
-    if (this.phase === "OnFoot" && this.astronaut) {
+    // Mission clock starts on first launch and never stops.
+    if (this.phase.kind !== "landed" || this.missionElapsed > 0) this.missionElapsed += FIXED_DT;
+    if (this.phase.kind === "onFoot" && this.astronaut) {
       const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
       const dt = FIXED_DT;
       // Build a walk direction in the surface tangent from camera-facing + WASD.
@@ -127,7 +126,7 @@ export class Game {
     }
 
     const dt = FIXED_DT;
-    if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
+    if (this.assistOn && (this.phase.kind === "space" || this.phase.kind === "descending")) {
       // Landing assist drives orientation + throttle this step.
       this.applyLandingAssist();
       // Player isn't manually turning during assist; zero the rate so g-lean decays to zero.
@@ -145,36 +144,33 @@ export class Game {
     this.lastAccelMag = shipThrustAccel(this.ship).length();
     const next = verletStep(toMotionState(this.ship), dt, accel);
     this.ship = applyMotionState(this.ship, next);
-    this.ship = burnFuel(this.ship, dt);
 
     // Landed hold: pin to the surface until thrust can beat gravity.
     // Must NOT run during Descending so Moon crash detection reads real velocity.
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
     const thrustMag = shipThrustAccel(this.ship).length();
-    if (this.phase !== "Descending") {
+    if (this.phase.kind !== "descending") {
       if (pb.altitude < this.padHeight && shouldHoldOnSurface(thrustMag, surfaceGravity(pb.body))) {
         this.ship.position = pb.body.position.add(pb.up.scale(pb.body.radius + this.padHeight));
         this.ship.velocity = Vec3.zero();
       }
     }
 
-    const atmoTop = pb.body.atmosphere ? pb.body.atmosphere.scaleHeight * 10 : 0;
     this.phase = nextPhase({
       phase: this.phase,
       altitude: pb.altitude,
-      inAtmosphere: pb.altitude < atmoTop,
-      primaryName: pb.body.name,
+      primary: { name: pb.body.name, radius: pb.body.radius, landable: pb.body.landable },
       launched: pb.altitude > LAUNCH_CLEAR,
     });
 
-    // Moon touchdown / crash detection while Descending.
-    if (this.phase === "Descending") {
+    // Touchdown / crash detection while descending onto any body.
+    if (this.phase.kind === "descending") {
       const vUp = this.ship.velocity.dot(pb.up);
       const tilt = Math.acos(Math.max(-1, Math.min(1, this.ship.orientation.normalize().dot(pb.up))));
       const result = evaluateTouchdown(pb.altitude, vUp, tilt, this.padHeight);
       if (result === "landed") {
         this.snapToSurface(pb.body, pb.up, this.padHeight);
-        this.phase = transition("Descending", "LandedMoon");
+        this.phase = transition(this.phase, { kind: "landed", body: pb.body.name });
         this.assistOn = false;
         this.ship.throttle = 0;
         const r = toRender(this.fo, this.ship.position);
@@ -204,15 +200,15 @@ export class Game {
     const vUp = this.ship.velocity.dot(pb.up);
     const speed = Math.max(0, -vUp); // descent speed (m/s)
     const gLocal = gravityAccel(this.ship.position, this.bodies).length();
-    const aMax = this.ship.maxThrust / totalMass(this.ship);
+    const aMax = this.ship.maxThrust / this.ship.mass;
     const aDec = Math.max(0.5, aMax - gLocal); // net deceleration available, engine up
     const distToGo = Math.max(0, pb.altitude - this.padHeight);
-    // Altitude-aware target: half the arrestable speed (always leaves margin to stop
-    // before the surface), plus a modest cap so we don't spend delta-v overspeeding.
-    let targetSpeed = Math.min(Math.sqrt(2 * aDec * distToGo) * 0.5, 1500);
+    // Altitude-aware target: a fraction of the arrestable speed (always leaves
+    // margin to stop before the surface). Gates tuned for km-scale toy planets.
+    let targetSpeed = Math.min(Math.sqrt(2 * aDec * distToGo) * 0.6, 400);
     // Force a slow, gentle final approach so touchdown is well under the safe limit.
-    if (pb.altitude < 400) targetSpeed = Math.min(targetSpeed, 15);
-    if (pb.altitude < 80) targetSpeed = Math.min(targetSpeed, 3);
+    if (pb.altitude < 250) targetSpeed = Math.min(targetSpeed, 18);
+    if (pb.altitude < 60) targetSpeed = Math.min(targetSpeed, 4);
 
     if (speed < targetSpeed - 8 && pb.altitude > this.padHeight + 50) {
       // Build descent speed toward the target: engine toward planet (coast near target).
@@ -248,14 +244,7 @@ export class Game {
       this.pendingWarpTarget = null;
     }
 
-    if (this.assistOn && (this.phase === "InSpace" || this.phase === "Descending")) {
-      // The assist flies the descent — auto-time-warp through the boring part and
-      // ease back near the surface so the touchdown is at a watchable speed.
-      // (Physics is per fixed-step, so warping stays accurate.)
-      const alt = selectPrimaryBody(this.ship.position, this.bodies).altitude;
-      const ts = alt > 8000 ? 40 : alt > 2000 ? 12 : alt > 400 ? 4 : alt > 120 ? 2 : 1;
-      this.tc = { ...this.tc, timeScale: ts };
-    } else if (this.phase !== "InSpace" && this.tc.timeScale !== 1) {
+    if (this.phase.kind !== "space" && this.tc.timeScale !== 1) {
       // Manual time-warp only while cruising in space; force x1 otherwise so you
       // can't fast-forward into a launch/descent/landing.
       this.tc = { ...this.tc, timeScale: 1 };
@@ -270,7 +259,7 @@ export class Game {
       for (let i = 0; i < steps; i++) this.stepSim();
     }
 
-    const focusPos = this.phase === "OnFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
+    const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
     updateBodies(this.views, this.fo);
 
@@ -280,9 +269,9 @@ export class Game {
     this.shipGroup.quaternion.copy(this.quat);
     // First-person cockpit: hide our own exterior so it doesn't fill the view.
     // Show the lander only when we've stepped out (to look back at it).
-    this.shipGroup.visible = this.phase === "OnFoot";
+    this.shipGroup.visible = this.phase.kind === "onFoot";
 
-    if (this.phase === "OnFoot" && this.astronaut) {
+    if (this.phase.kind === "onFoot" && this.astronaut) {
       const r = toRender(this.fo, this.astronaut.position);
       const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
       const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
@@ -313,7 +302,7 @@ export class Game {
 
     this.navmap.update(this.ship.position);
     this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
-    const focusVel = this.phase === "OnFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
+    const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
     const focusPb = selectPrimaryBody(focusPos, this.bodies);
     const skim = skimIntensity(focusPb.altitude, focusVel.length());
     this.speedDust.update(focusVel, dt, this.renderer.camera.position, skim);
@@ -323,19 +312,16 @@ export class Game {
     requestAnimationFrame(this.frame);
   };
 
-  private initialFuel = 0;
-
   private updateHud(): void {
     const pb = selectPrimaryBody(this.ship.position, this.bodies);
     const vUp = this.ship.velocity.dot(pb.up);
     this.hud.update({
-      phase: this.phase,
+      phase: phaseLabel(this.phase),
       altitude: pb.altitude,
       speed: this.ship.velocity.length(),
       verticalSpeed: vUp,
-      fuelFraction: this.ship.fuelMass / this.initialFuel,
       throttle: this.ship.throttle,
-      warning: vUp < -5 && pb.altitude < 5000 ? "HIGH DESCENT RATE" : null,
+      warning: vUp < -20 && pb.altitude < 500 ? "HIGH DESCENT RATE" : null,
       timeScale: this.tc.timeScale,
       missionSeconds: this.missionElapsed,
       assistOn: this.assistOn,
@@ -361,8 +347,10 @@ export class Game {
   }
 
   private resetToPad(): void {
-    const earth = this.bodies[0];
-    this.ship = createSpacecraft(new Vec3(0, earth.radius + this.padHeight, 0));
+    const earth = findBody(this.bodies, "Earth");
+    this.ship = createSpacecraft(
+      earth.position.add(new Vec3(0, earth.radius + this.padHeight, 0)),
+    );
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
     this.angular = zeroAngular();
@@ -375,7 +363,7 @@ export class Game {
   // Cycle the time-warp multiplier through WARP_LEVELS (only meaningful in space;
   // the frame loop forces x1 outside InSpace).
   private stepTimeWarp(dir: number): void {
-    if (this.phase !== "InSpace") return;
+    if (this.phase.kind !== "space") return;
     const levels = Game.WARP_LEVELS;
     const i = levels.indexOf(this.tc.timeScale);
     const next = levels[Math.max(0, Math.min(levels.length - 1, (i < 0 ? 0 : i) + dir))];
@@ -386,7 +374,8 @@ export class Game {
     if (this.warpSeq.phase !== "idle") return; // already warping
     const name = this.navmap.targetName;
     if (!name) return;
-    if (this.phase !== "InSpace" && this.phase !== "Launching" && this.phase !== "Descending") return;
+    const k = this.phase.kind;
+    if (k !== "space" && k !== "launching" && k !== "descending") return;
     const target = this.bodies.find((b) => b.name === name);
     if (!target) return;
     this.pendingWarpTarget = target;
@@ -402,11 +391,11 @@ export class Game {
     );
     this.angular = zeroAngular();
     this.rig.resetLook();
-    this.phase = "InSpace";
+    this.phase = { kind: "space" };
   }
 
   private toggleExit(): void {
-    if (this.phase === "LandedMoon" && !this.astronaut) {
+    if (this.phase.kind === "landed" && !this.astronaut) {
       const pb = selectPrimaryBody(this.ship.position, this.bodies);
       // Spawn a few metres to the side of the lander (offset along a surface tangent)
       // so the astronaut can turn and see the lander rather than spawning inside it.
@@ -418,11 +407,11 @@ export class Game {
       this.astronaut = createAstronaut(start);
       this.astronaut.onGround = true;
       this.astronautGroup.visible = true;
-      this.phase = transition("LandedMoon", "OnFoot");
-    } else if (this.phase === "OnFoot" && this.astronaut) {
+      this.phase = transition(this.phase, { kind: "onFoot", body: this.phase.body });
+    } else if (this.phase.kind === "onFoot" && this.astronaut) {
       this.astronaut = null;
       this.astronautGroup.visible = false;
-      this.phase = transition("OnFoot", "LandedMoon");
+      this.phase = transition(this.phase, { kind: "landed", body: this.phase.body });
     }
   }
 

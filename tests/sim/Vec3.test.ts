@@ -14,6 +14,16 @@ describe("Vec3", () => {
     expect(new Vec3(1, 0, 0).dot(new Vec3(0, 1, 0))).toBe(0);
   });
 
+  it("crosses right-handed", () => {
+    expect(new Vec3(1, 0, 0).cross(new Vec3(0, 1, 0))).toEqual(new Vec3(0, 0, 1));
+    expect(new Vec3(0, 1, 0).cross(new Vec3(1, 0, 0))).toEqual(new Vec3(0, 0, -1));
+    const a = new Vec3(2, -1, 3);
+    const b = new Vec3(-4, 5, 6);
+    const c = a.cross(b);
+    expect(c.dot(a)).toBeCloseTo(0, 10);
+    expect(c.dot(b)).toBeCloseTo(0, 10);
+  });
+
   it("computes length and normalizes", () => {
     expect(new Vec3(3, 4, 0).length()).toBe(5);
     expect(new Vec3(3, 4, 0).lengthSq()).toBe(25);

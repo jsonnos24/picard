@@ -25,6 +25,14 @@ export class Vec3 {
     return this.x * v.x + this.y * v.y + this.z * v.z;
   }
 
+  cross(v: Vec3): Vec3 {
+    return new Vec3(
+      this.y * v.z - this.z * v.y,
+      this.z * v.x - this.x * v.z,
+      this.x * v.y - this.y * v.x,
+    );
+  }
+
   lengthSq(): number {
     return this.dot(this);
   }

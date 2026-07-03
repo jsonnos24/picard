@@ -8,7 +8,8 @@ export class Renderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
-    this.gl.setPixelRatio(window.devicePixelRatio);
+    // Cap DPR: phones report 3-4x and the fill-rate cost isn't worth it.
+    this.gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1e9);
     this.scene.add(createStarfield());

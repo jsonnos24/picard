@@ -43,12 +43,24 @@ export class NavMap {
     if (this.open) this.draw();
   }
 
-  private worldToMap(x: number): { px: number; py: number } {
-    // Map the Earth-Moon line (0..moon.x) across the canvas width with margins.
-    const moonX = this.bodies[1].position.x;
-    const margin = 60;
-    const px = margin + (x / moonX) * (this.canvas.width - 2 * margin);
-    return { px, py: this.canvas.height / 2 };
+  // Top-down view of the ecliptic: world x/z fitted to the canvas with margins.
+  private worldToMap(x: number, z: number): { px: number; py: number } {
+    const margin = 40;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const b of this.bodies) {
+      minX = Math.min(minX, b.position.x);
+      maxX = Math.max(maxX, b.position.x);
+      minZ = Math.min(minZ, b.position.z);
+      maxZ = Math.max(maxZ, b.position.z);
+    }
+    const spanX = Math.max(1, maxX - minX);
+    const spanZ = Math.max(1, maxZ - minZ);
+    const px = margin + ((x - minX) / spanX) * (this.canvas.width - 2 * margin);
+    const py = margin + ((z - minZ) / spanZ) * (this.canvas.height - 2 * margin);
+    return { px, py };
   }
 
   private draw(): void {
@@ -56,20 +68,22 @@ export class NavMap {
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.hit.length = 0;
     for (const b of this.bodies) {
-      const { px, py } = this.worldToMap(b.position.x);
-      c.fillStyle = b.name === this.target ? "#6f6" : "#9cf";
+      const { px, py } = this.worldToMap(b.position.x, b.position.z);
+      const dotR = b.kind === "star" ? 12 : b.kind === "moon" ? 4 : 7;
+      c.fillStyle =
+        b.name === this.target ? "#6f6" : "#" + b.color.toString(16).padStart(6, "0");
       c.beginPath();
-      c.arc(px, py, b.name === "Earth" ? 14 : 8, 0, Math.PI * 2);
+      c.arc(px, py, dotR, 0, Math.PI * 2);
       c.fill();
       c.fillStyle = "#9cf";
       c.font = "11px monospace";
-      c.fillText(b.name, px - 12, py + 26);
+      c.fillText(b.name, px - 12, py + dotR + 14);
       this.hit.push({ name: b.name, x: px, y: py });
     }
     // ship marker
-    const s = this.worldToMap(this.shipPos.x);
+    const s = this.worldToMap(this.shipPos.x, this.shipPos.z);
     c.fillStyle = "#ff6";
-    c.fillRect(s.px - 2, s.py - 2, 4, 4);
+    c.fillRect(s.px - 3, s.py - 3, 6, 6);
   }
 
   private onClick(e: MouseEvent): void {

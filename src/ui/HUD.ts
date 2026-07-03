@@ -3,7 +3,6 @@ export interface HudState {
   altitude: number;
   speed: number;
   verticalSpeed: number;
-  fuelFraction: number;
   throttle: number;
   warning: string | null;
   timeScale: number; // 1 = real time; 2/4/6/8 = fast-forward
@@ -70,7 +69,6 @@ export class HUD {
       `<div class="row">ALT <b>${fmt(s.altitude)}</b></div>` +
       `<div class="row">SPD <b>${s.speed.toFixed(0)} m/s</b></div>` +
       `<div class="row">V/S <b>${s.verticalSpeed.toFixed(1)} m/s</b></div>` +
-      `<div class="row">FUEL <b>${(s.fuelFraction * 100).toFixed(0)}%</b></div>` +
       `<div class="row">THR <b>${(s.throttle * 100).toFixed(0)}%</b></div>` +
       `<div class="row">MET <b>${fmtMissionTime(s.missionSeconds)}</b></div>` +
       (s.timeScale > 1 ? `<div class="row warp">▶▶ WARP x${s.timeScale}</div>` : "") +
