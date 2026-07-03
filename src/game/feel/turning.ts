@@ -8,7 +8,10 @@ export const MAX_RATE = 0.9;   // rad/s at full deflection (was a flat ROT_RATE=
 export const RATE_ACCEL = 3.0; // rad/s^2 ramp toward the commanded rate
 export const RATE_DAMP = 2.5;  // 1/s exponential-ish decay when no input on that axis
 
-interface TurnInput { isActive(i: Intent): boolean }
+interface TurnInput {
+  isActive(i: Intent): boolean;
+  getAxis(a: "steerX" | "steerY"): number;
+}
 
 export function zeroAngular(): AngularState {
   return { pitch: 0, yaw: 0, roll: 0 };
@@ -34,8 +37,9 @@ export function stepTurning(
   im: TurnInput,
   dt: number,
 ): { quat: THREE.Quaternion; state: AngularState } {
-  const cmdPitch = (im.isActive("pitchUp") ? 1 : 0) + (im.isActive("pitchDown") ? -1 : 0);
-  const cmdYaw = (im.isActive("yawLeft") ? 1 : 0) + (im.isActive("yawRight") ? -1 : 0);
+  // Analog axes (touch drag) or intent-derived ±1 (keyboard) — same channel.
+  const cmdPitch = im.getAxis("steerY");
+  const cmdYaw = -im.getAxis("steerX"); // steerX right-positive; yaw left-positive
   const cmdRoll = (im.isActive("rollLeft") ? 1 : 0) + (im.isActive("rollRight") ? -1 : 0);
 
   const next: AngularState = {

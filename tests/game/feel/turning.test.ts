@@ -4,8 +4,17 @@ import * as THREE from "three";
 import { Intent } from "../../../src/sim/input/bindings";
 import { stepTurning, zeroAngular, MAX_RATE } from "../../../src/game/feel/turning";
 
-function fakeInput(active: Intent[]) {
-  return { isActive: (i: Intent) => active.includes(i) };
+function fakeInput(active: Intent[], axes: { steerX?: number; steerY?: number } = {}) {
+  return {
+    isActive: (i: Intent) => active.includes(i),
+    getAxis: (a: "steerX" | "steerY"): number => {
+      if (axes[a] !== undefined) return axes[a]!;
+      // Mirror InputManager's intent-derived fallback.
+      return a === "steerX"
+        ? (active.includes("yawRight") ? 1 : 0) - (active.includes("yawLeft") ? 1 : 0)
+        : (active.includes("pitchUp") ? 1 : 0) - (active.includes("pitchDown") ? 1 : 0);
+    },
+  };
 }
 
 describe("turning (momentum)", () => {
@@ -42,5 +51,27 @@ describe("turning (momentum)", () => {
     stepTurning(q0, s0, fakeInput(["yawLeft"]), 1 / 60);
     expect(q0.equals(new THREE.Quaternion())).toBe(true);
     expect(s0.yaw).toBe(0);
+  });
+
+  it("a fractional analog axis targets a proportional rate", () => {
+    let sFull = zeroAngular();
+    let sHalf = zeroAngular();
+    let q = new THREE.Quaternion();
+    for (let i = 0; i < 600; i++) {
+      ({ state: sFull } = stepTurning(q, sFull, fakeInput([], { steerY: 1 }), 1 / 60));
+      ({ state: sHalf } = stepTurning(q, sHalf, fakeInput([], { steerY: 0.5 }), 1 / 60));
+    }
+    expect(sFull.pitch).toBeCloseTo(MAX_RATE, 1);
+    expect(sHalf.pitch).toBeCloseTo(MAX_RATE * 0.5, 1);
+  });
+
+  it("steerX right-positive maps to a negative (rightward) yaw command", () => {
+    const { state } = stepTurning(
+      new THREE.Quaternion(),
+      zeroAngular(),
+      fakeInput([], { steerX: 1 }),
+      1 / 60,
+    );
+    expect(state.yaw).toBeLessThan(0);
   });
 });

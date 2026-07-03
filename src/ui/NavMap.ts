@@ -9,11 +9,12 @@ export class NavMap {
   private target: string | null = null;
   private shipPos = new Vec3();
   private readonly hit: { name: string; x: number; y: number }[] = [];
+  private dpr = 1;
 
   constructor(root: HTMLElement, private readonly bodies: Body[]) {
     this.el = document.createElement("div");
     this.el.id = "navmap";
-    this.el.innerHTML = `<div class="title">NAV MAP — click a body to target</div>`;
+    this.el.innerHTML = `<div class="title">NAV MAP — tap a body to target</div>`;
     this.canvas = document.createElement("canvas");
     this.canvas.width = 480;
     this.canvas.height = 360;
@@ -21,6 +22,18 @@ export class NavMap {
     root.appendChild(this.el);
     this.ctx = this.canvas.getContext("2d")!;
     this.canvas.addEventListener("click", (e) => this.onClick(e));
+  }
+
+  // Match the backing store to the CSS size × DPR so the map stays sharp on
+  // any screen; runs each draw (cheap when nothing changed).
+  private ensureSize(): void {
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(this.canvas.clientWidth * this.dpr);
+    const h = Math.round(this.canvas.clientHeight * this.dpr);
+    if (w > 0 && h > 0 && (this.canvas.width !== w || this.canvas.height !== h)) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
   }
 
   get isOpen(): boolean {
@@ -45,7 +58,7 @@ export class NavMap {
 
   // Top-down view of the ecliptic: world x/z fitted to the canvas with margins.
   private worldToMap(x: number, z: number): { px: number; py: number } {
-    const margin = 40;
+    const margin = 40 * this.dpr;
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -64,26 +77,28 @@ export class NavMap {
   }
 
   private draw(): void {
+    this.ensureSize();
     const c = this.ctx;
+    const k = this.dpr;
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.hit.length = 0;
     for (const b of this.bodies) {
       const { px, py } = this.worldToMap(b.position.x, b.position.z);
-      const dotR = b.kind === "star" ? 12 : b.kind === "moon" ? 4 : 7;
+      const dotR = (b.kind === "star" ? 12 : b.kind === "moon" ? 4 : 7) * k;
       c.fillStyle =
         b.name === this.target ? "#6f6" : "#" + b.color.toString(16).padStart(6, "0");
       c.beginPath();
       c.arc(px, py, dotR, 0, Math.PI * 2);
       c.fill();
       c.fillStyle = "#9cf";
-      c.font = "11px monospace";
-      c.fillText(b.name, px - 12, py + dotR + 14);
+      c.font = `${11 * k}px monospace`;
+      c.fillText(b.name, px - 12 * k, py + dotR + 14 * k);
       this.hit.push({ name: b.name, x: px, y: py });
     }
     // ship marker
     const s = this.worldToMap(this.shipPos.x, this.shipPos.z);
     c.fillStyle = "#ff6";
-    c.fillRect(s.px - 3, s.py - 3, 6, 6);
+    c.fillRect(s.px - 3 * k, s.py - 3 * k, 6 * k, 6 * k);
   }
 
   private onClick(e: MouseEvent): void {
@@ -91,7 +106,7 @@ export class NavMap {
     const x = ((e.clientX - rect.left) / rect.width) * this.canvas.width;
     const y = ((e.clientY - rect.top) / rect.height) * this.canvas.height;
     for (const h of this.hit) {
-      if (Math.hypot(h.x - x, h.y - y) < 20) {
+      if (Math.hypot(h.x - x, h.y - y) < 24 * this.dpr) {
         this.target = h.name;
         this.draw();
         return;

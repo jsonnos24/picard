@@ -1,5 +1,6 @@
 #ui { position: absolute; inset: 0; pointer-events: none; font-family: "Courier New", monospace; color: #9cf; }
-#hud { position: absolute; left: 16px; bottom: 16px; font-size: 14px; line-height: 1.5;
+#hud { position: absolute; left: calc(16px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom));
+       font-size: 14px; line-height: 1.5;
        text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
 #hud .warn { color: #f55; font-weight: bold; }
 #hud .warp { color: #6cf; font-weight: bold; }
@@ -15,10 +16,30 @@
 #controls .crow b { color: #6cf; min-width: 64px; display: inline-block; }
 
 #navmap { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-          width: 480px; height: 360px; background: rgba(0,0,20,0.85); border: 1px solid #3a6;
-          pointer-events: auto; display: none; }
+          width: min(90vw, 560px); height: min(70vh, 420px); background: rgba(0,0,20,0.85); border: 1px solid #3a6;
+          pointer-events: auto; display: none; z-index: 20; /* above the touch steer zone */ }
 #navmap.open { display: block; }
-#navmap canvas { width: 100%; height: 100%; cursor: crosshair; }
+#navmap canvas { width: 100%; height: 100%; cursor: crosshair; touch-action: manipulation; }
 #navmap .title { position: absolute; top: 6px; left: 10px; color: #9cf; font: 12px monospace; }
 #ui .marker { position: absolute; transform: translate(-50%,-50%); color: #6f6;
               font: 13px monospace; text-shadow: 0 0 4px #000; white-space: nowrap; }
+
+/* ---- Touch layer: hidden on mouse machines, on for coarse pointers ---- */
+#touchcontrols { position: absolute; inset: 0; pointer-events: none; display: none; }
+@media (pointer: coarse) {
+  #touchcontrols { display: block; }
+  #controls { display: none; }
+  #hud { font-size: 12px; padding: 6px 10px; line-height: 1.4; }
+}
+#touchcontrols .steerzone { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+#touchcontrols .cluster { position: absolute; right: calc(14px + env(safe-area-inset-right));
+                          bottom: calc(14px + env(safe-area-inset-bottom));
+                          display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+                          pointer-events: none; z-index: 10; /* buttons above the steer zone */ }
+#touchcontrols .tbtn { font: bold 13px "Courier New", monospace; color: #cef;
+                       background: rgba(10,16,40,0.75); border: 1px solid #3a6; border-radius: 12px;
+                       padding: 10px 16px; min-width: 76px; min-height: 48px;
+                       pointer-events: auto; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+#touchcontrols .tbtn.context { min-width: 160px; min-height: 64px; font-size: 16px; border-color: #6cf; }
+#touchcontrols .tbtn.disabled { opacity: 0.5; }
+#touchcontrols .tbtn:active { background: rgba(60,120,200,0.5); }

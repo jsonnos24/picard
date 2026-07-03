@@ -40,6 +40,8 @@ import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
+import { TouchControls } from "../ui/TouchControls";
+import { contextAction } from "./contextAction";
 import {
   DEFAULT_LS_PARAMS,
   lightspeedStep,
@@ -93,6 +95,7 @@ export class Game {
   private lsGraceUntil = -1; // perfect release: lightspeed skips the charge until this time
   private gravityRings!: { update(fo: FloatingOrigin, capturedName: string | null, t: number): void };
   private readonly sun: Body;
+  private touch!: TouchControls;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
@@ -123,16 +126,20 @@ export class Game {
     this.hud = new HUD(document.getElementById("ui")!);
     new Controls(document.getElementById("ui")!);
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
+    this.touch = new TouchControls(document.getElementById("ui")!, this.input);
     this.warpFx = createWarpEffect(this.renderer.scene);
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;
 
     this.dust = createDust(this.renderer.scene);
     this.speedDust = createSpeedDust(this.renderer.scene);
-    const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
-    canvasEl.addEventListener("click", () => canvasEl.requestPointerLock());
-    window.addEventListener("mousemove", (e) => {
-      if (document.pointerLockElement) this.rig.addLook(e.movementX, e.movementY);
-    });
+    // Pointer Lock free-look is a mouse-only affordance; touch steers by drag.
+    if (window.matchMedia("(pointer: fine)").matches) {
+      const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
+      canvasEl.addEventListener("click", () => canvasEl.requestPointerLock());
+      window.addEventListener("mousemove", (e) => {
+        if (document.pointerLockElement) this.rig.addLook(e.movementX, e.movementY);
+      });
+    }
   }
 
   private stepSim(): void {
@@ -150,6 +157,11 @@ export class Game {
       if (this.input.isActive("walkBack")) move.sub(fwd);
       if (this.input.isActive("walkLeft")) move.sub(right);
       if (this.input.isActive("walkRight")) move.add(right);
+      // Touch drag walks too (override only — keyboard is covered above).
+      const ox = this.input.getAxisOverride("steerX");
+      const oy = this.input.getAxisOverride("steerY");
+      if (ox) move.add(right.clone().multiplyScalar(ox));
+      if (oy) move.add(fwd.clone().multiplyScalar(oy));
       const walkDir = new Vec3(move.x, move.y, move.z);
       const jump = this.input.isActive("jump");
       this.astronaut = stepAstronaut(this.astronaut, pb.body, walkDir, jump, dt);
@@ -162,10 +174,7 @@ export class Game {
     // negligible at these speeds); hands off at the target's capture ring.
     if (this.cruising && this.lsTargetName) {
       const target = findBody(this.bodies, this.lsTargetName);
-      const steer = {
-        x: (this.input.isActive("yawRight") ? 1 : 0) - (this.input.isActive("yawLeft") ? 1 : 0),
-        y: (this.input.isActive("pitchUp") ? 1 : 0) - (this.input.isActive("pitchDown") ? 1 : 0),
-      };
+      const steer = { x: this.input.getAxis("steerX"), y: this.input.getAxis("steerY") };
       const r = lightspeedStep(this.ship.position, this.ship.velocity, target, steer, dt);
       this.ship.position = r.pos;
       this.ship.velocity = r.vel;
@@ -219,8 +228,7 @@ export class Game {
         return;
       }
 
-      const steer =
-        (this.input.isActive("pitchUp") ? 1 : 0) - (this.input.isActive("pitchDown") ? 1 : 0);
+      const steer = this.input.getAxis("steerY");
       const r = stepSwing(this.sling, body, held, steer, dt);
       this.sling = r.state;
       this.ship.position = r.pos;
@@ -450,6 +458,18 @@ export class Game {
     }
 
     this.navmap.update(this.ship.position);
+    this.touch.update(
+      contextAction({
+        phaseKind: this.phase.kind,
+        slingCaptured: this.sling.kind === "captured",
+        cruising: this.cruising,
+        charging: this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst",
+        hasTarget: this.navmap.targetName !== null,
+        assistOn: this.assistOn,
+      }),
+      this.phase.kind === "onFoot",
+      this.phase.kind === "landed",
+    );
     this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
     const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
     const focusPb = selectPrimaryBody(focusPos, this.bodies);
