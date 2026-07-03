@@ -257,6 +257,27 @@ export class Game {
       this.angular = turn.state;
       this.ship.throttle = nextThrottle(this.ship.throttle, this.input, dt);
       this.ship.orientation = thrustDirection(this.quat);
+
+      // Retro-brake: once the throttle is cut, keeping S (or BRAKE) held flips
+      // the rocket against its velocity and burns until it stands still.
+      const speed = this.ship.velocity.length();
+      if (
+        this.input.isActive("throttleDown") &&
+        this.ship.throttle <= 0 &&
+        this.phase.kind !== "landed" &&
+        speed > 0
+      ) {
+        const aMax = this.ship.maxThrust / this.ship.mass;
+        if (speed <= aMax * dt * 1.5) {
+          // Close enough: stop cleanly instead of jittering around zero.
+          this.ship.velocity = Vec3.zero();
+          this.ship.throttle = 0;
+        } else {
+          this.setOrient(this.ship.velocity.scale(-1 / speed));
+          this.ship.throttle = 1;
+          this.angular = zeroAngular();
+        }
+      }
     }
 
     // The Sun never captures — it shoves (plus heat warnings on the HUD).
@@ -495,6 +516,9 @@ export class Game {
       }),
       this.phase.kind === "onFoot",
       this.phase.kind === "landed",
+      (this.phase.kind === "space" || this.phase.kind === "descending") &&
+        !this.cruising &&
+        this.sling.kind !== "captured",
     );
     this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
     const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
@@ -553,8 +577,8 @@ export class Game {
   private keyboardHint(): string | null {
     if (this.sling.kind === "captured") {
       return this.input.isActive("slingHold")
-        ? "release SPACE to fling!"
-        : "hold SPACE to swing · L to land";
+        ? "release SPACE to fling · or J to jump now"
+        : "hold SPACE to swing · J lightspeed · L land";
     }
     if (this.cruising) return "J to drop out early";
     if (this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst") return null;
@@ -562,12 +586,15 @@ export class Game {
       case "landed":
         return "hold W to launch · F to hop out";
       case "launching":
-      case "space":
+      case "space": {
+        const brake =
+          this.ship.velocity.length() > 50 && this.ship.throttle <= 0 ? " · hold S to brake" : "";
         return this.navmap.targetName
-          ? `J — lightspeed to ${this.navmap.targetName}`
-          : "M — open the map, tap a planet";
+          ? `J — lightspeed to ${this.navmap.targetName}${brake}`
+          : `M — open the map, tap a planet${brake}`;
+      }
       case "descending":
-        return this.assistOn ? null : "L — auto-land";
+        return this.assistOn ? null : "L — auto-land · hold S to brake";
       case "onFoot":
         return "WASD walk · SPACE jump · F board";
     }
@@ -622,8 +649,17 @@ export class Game {
       this.lsSeq = endCruise(this.lsSeq);
       return;
     }
-    if (this.sling.kind === "captured") return; // release the swing first
     if (this.lsSeq.phase !== "idle") return; // already charging
+    if (this.sling.kind === "captured") {
+      // J while swinging: release the sling and jump in one motion.
+      const body = findBody(this.bodies, this.sling.bodyName);
+      const fling = releaseFling(this.sling, body, this.navTargetDirection());
+      this.sling = fling.state;
+      this.ship.velocity = fling.velocity;
+      this.setOrient(fling.velocity.normalize());
+      if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2;
+      this.slingHeldPrev = false;
+    }
     const name = this.navmap.targetName;
     if (!name) return;
     const k = this.phase.kind;

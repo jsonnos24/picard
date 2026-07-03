@@ -4,7 +4,7 @@
        text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
 #hud .warn { color: #f55; font-weight: bold; }
 #hud .warp { color: #6cf; font-weight: bold; }
-#hud .hint { color: #fd6; }
+#hud .hint { color: #fd6; font-weight: bold; font-size: 1.1em; margin-top: 4px; }
 #hud .row b { color: #cef; }
 /* Touch players get their instructions from the context button instead. */
 @media (pointer: coarse) { #hud .hint { display: none !important; } }

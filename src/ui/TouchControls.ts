@@ -15,6 +15,7 @@ export class TouchControls {
   private readonly contextBtn: HTMLButtonElement;
   private readonly jumpBtn: HTMLButtonElement;
   private readonly exitBtn: HTMLButtonElement;
+  private readonly brakeBtn: HTMLButtonElement;
   private contextIntent: Intent | null = null;
   private contextDown = false;
   private steerPointer: number | null = null;
@@ -37,6 +38,7 @@ export class TouchControls {
     this.contextBtn = this.makeButton(cluster, "context", "");
     this.jumpBtn = this.makeTapButton(cluster, "JUMP", "jump");
     this.exitBtn = this.makeTapButton(cluster, "EXIT", "toggleExit");
+    this.brakeBtn = this.makeTapButton(cluster, "BRAKE", "throttleDown");
     this.makeTapButton(cluster, "MAP", "openMap");
     this.makeTapButton(cluster, "CAM", "toggleCamera");
     this.el.appendChild(cluster);
@@ -106,11 +108,12 @@ export class TouchControls {
 
   // Called each frame: keep the verb current, but never swap the intent out
   // from under an active press.
-  update(verb: ContextVerb, onFoot: boolean, landed: boolean): void {
+  update(verb: ContextVerb, onFoot: boolean, landed: boolean, flying: boolean): void {
     if (!this.contextDown) this.contextIntent = verb.intent;
     if (this.contextBtn.textContent !== verb.label) this.contextBtn.textContent = verb.label;
     this.contextBtn.classList.toggle("disabled", verb.intent === null);
     this.jumpBtn.style.display = onFoot ? "" : "none";
     this.exitBtn.style.display = landed ? "" : "none";
+    this.brakeBtn.style.display = flying ? "" : "none";
   }
 }
