@@ -36,7 +36,9 @@ import { selectPrimaryBody } from "./primaryBody";
 import { thrustDirection } from "./attitude";
 import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
+import { BrakeState, idleBrake, stepBrake } from "./retroBrake";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
+import { jumpDecision } from "./jump";
 import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
@@ -93,6 +95,8 @@ export class Game {
   private lsFovScale = 1;
   private sling: SlingState = idleSling();
   private slingHeldPrev = false;
+  private brake: BrakeState = idleBrake();
+  private preBrakeOrient: Vec3 | null = null; // orientation to restore if the brake is released early
   private lsGraceUntil = -1; // perfect release: lightspeed skips the charge until this time
   private gravityRings!: { update(fo: FloatingOrigin, capturedName: string | null, t: number): void };
   private readonly sun: Body;
@@ -266,25 +270,39 @@ export class Game {
       this.ship.throttle = nextThrottle(this.ship.throttle, this.input, dt);
       this.ship.orientation = thrustDirection(this.quat);
 
-      // Retro-brake: once the throttle is cut, keeping S (or BRAKE) held flips
-      // the rocket against its velocity and burns until it stands still.
+      // Retro-brake: keeping S (or BRAKE) held past the grace period after the
+      // throttle hits zero flips the rocket retrograde and burns to a stop.
+      // The state machine is forgiving: easing the throttle down never flips,
+      // and letting go restores where you were pointing with the engine off.
       const speed = this.ship.velocity.length();
-      if (
-        this.input.isActive("throttleDown") &&
-        this.ship.throttle <= 0 &&
-        this.phase.kind !== "landed" &&
-        speed > 0
-      ) {
-        const aMax = this.ship.maxThrust / this.ship.mass;
-        if (speed <= aMax * dt * 1.5) {
-          // Close enough: stop cleanly instead of jittering around zero.
-          this.ship.velocity = Vec3.zero();
-          this.ship.throttle = 0;
-        } else {
-          this.setOrient(this.ship.velocity.scale(-1 / speed));
-          this.ship.throttle = 1;
-          this.angular = zeroAngular();
-        }
+      const r = stepBrake(this.brake, {
+        braking: this.input.isActive("throttleDown"),
+        throttle: this.ship.throttle,
+        speed,
+        inFlight: this.phase.kind !== "landed",
+        aMax: this.ship.maxThrust / this.ship.mass,
+        dt,
+      });
+      this.brake = r.state;
+      if (r.command === "burn") {
+        if (!this.preBrakeOrient) this.preBrakeOrient = this.ship.orientation;
+        this.setOrient(this.ship.velocity.scale(-1 / speed));
+        this.ship.throttle = 1;
+        this.angular = zeroAngular();
+      } else if (r.command === "stop") {
+        // Arrested: engine off, nose back to local up so W means "away from
+        // the planet", never "into it".
+        this.ship.velocity = Vec3.zero();
+        this.ship.throttle = 0;
+        const pb = selectPrimaryBody(this.ship.position, this.bodies);
+        this.setOrient(pb.up);
+        this.preBrakeOrient = null;
+      } else if (r.command === "release") {
+        // Let go mid-burn: engine off, restore the pre-brake heading.
+        this.ship.throttle = 0;
+        if (this.preBrakeOrient) this.setOrient(this.preBrakeOrient);
+        this.preBrakeOrient = null;
+        this.angular = zeroAngular();
       }
     }
 
@@ -648,6 +666,8 @@ export class Game {
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
     this.angular = zeroAngular();
+    this.brake = idleBrake();
+    this.preBrakeOrient = null;
     this.phase = initialPhase();
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };
@@ -679,6 +699,23 @@ export class Game {
       return;
     }
     if (this.lsSeq.phase !== "idle") return; // already charging
+    // Decide before touching anything: the old fling-first-validate-after
+    // order bounced arrivals in an endless fling/cruise-back loop.
+    const name = this.navmap.targetName;
+    const target = name ? findBody(this.bodies, name) : null;
+    const decision = jumpDecision({
+      capturedBody: this.sling.kind === "captured" ? this.sling.bodyName : null,
+      targetName: name,
+      targetDist: target ? target.position.sub(this.ship.position).length() : Infinity,
+      targetCaptureRadius: target ? target.captureRadius : 0,
+      phaseKind: this.phase.kind,
+    });
+    if (decision === "none") return;
+    if (decision === "land") {
+      // You're already at the target — J finishes the trip.
+      this.assistOn = true;
+      return;
+    }
     if (this.sling.kind === "captured") {
       // J while swinging: release the sling and jump in one motion.
       const body = findBody(this.bodies, this.sling.bodyName);
@@ -689,13 +726,7 @@ export class Game {
       if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2;
       this.slingHeldPrev = false;
     }
-    const name = this.navmap.targetName;
-    if (!name) return;
-    const k = this.phase.kind;
-    if (k !== "space" && k !== "launching" && k !== "descending") return;
-    const target = findBody(this.bodies, name);
-    // Only meaningful when the target's ring is still ahead of us.
-    if (target.position.sub(this.ship.position).length() <= target.captureRadius) return;
+    if (decision === "jump" || !name) return;
     this.lsTargetName = name;
     if (this.missionElapsed <= this.lsGraceUntil) {
       // A perfect (snapped) sling release chains straight into the leap.
