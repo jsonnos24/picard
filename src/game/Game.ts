@@ -517,6 +517,7 @@ export class Game {
       contextAction({
         phaseKind: this.phase.kind,
         slingCaptured: this.sling.kind === "captured",
+        capturedAtTarget: this.capturedAtTarget(),
         cruising: this.cruising,
         charging: this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst",
         hasTarget: this.navmap.targetName !== null,
@@ -549,7 +550,12 @@ export class Game {
         target.position.sub(this.ship.position).length() - target.captureRadius;
       lightspeedEta = etaSeconds(distToDrop, this.ship.velocity.length());
     }
-    let sling: { winding: boolean; speed: number; aligned: boolean } | null = null;
+    let sling: {
+      winding: boolean;
+      speed: number;
+      aligned: boolean;
+      atTarget: boolean;
+    } | null = null;
     if (this.sling.kind === "captured") {
       const navDir = this.navTargetDirection();
       const aligned =
@@ -557,7 +563,12 @@ export class Game {
         Math.acos(
           Math.max(-1, Math.min(1, this.ship.velocity.normalize().dot(navDir))),
         ) <= DEFAULT_SLING_PARAMS.snapCone;
-      sling = { winding: this.input.isActive("slingHold"), speed: this.sling.speed, aligned };
+      sling = {
+        winding: this.input.isActive("slingHold"),
+        speed: this.sling.speed,
+        aligned,
+        atTarget: this.capturedAtTarget(),
+      };
     }
     const inSunBubble =
       this.ship.position.sub(this.sun.position).length() < this.sun.captureRadius;
@@ -584,6 +595,9 @@ export class Game {
   // (Touch players get the same guidance from the context button.)
   private keyboardHint(): string | null {
     if (this.sling.kind === "captured") {
+      if (this.capturedAtTarget() && !this.input.isActive("slingHold")) {
+        return "you've arrived — L to land · or hold SPACE to swing on";
+      }
       return this.input.isActive("slingHold")
         ? "release SPACE to fling · or J to jump now"
         : "hold SPACE to swing · J lightspeed · L land";
@@ -638,6 +652,13 @@ export class Game {
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };
     this.assistOn = false;
+  }
+
+  // Swinging in the ring of the body the player navigated to — arrival. The
+  // aligned-release cue can never fire here (the snap target is the swing
+  // center), so arrival UI must offer landing, not endless swinging.
+  private capturedAtTarget(): boolean {
+    return this.sling.kind === "captured" && this.sling.bodyName === this.navmap.targetName;
   }
 
   // Unit direction from the ship to the nav target, if one is set.

@@ -6,7 +6,8 @@ export interface HudState {
   throttle: number;
   warning: string | null;
   lightspeedEta: number | null; // seconds to the drop point while cruising, else null
-  sling: { winding: boolean; speed: number; aligned: boolean } | null; // captured in a gravity ring
+  // Captured in a gravity ring; atTarget = it's the nav target's ring (arrival)
+  sling: { winding: boolean; speed: number; aligned: boolean; atTarget: boolean } | null;
   missionSeconds: number; // simulated seconds since leaving Earth
   assistOn: boolean; // landing assist engaged
   hint: string | null; // context-sensitive "what do I do next" line (keyboard wording)
@@ -119,9 +120,11 @@ export class HUD {
     this.setStatus(
       "sling",
       s.sling
-        ? `⭗ ${s.sling.winding ? "SWINGING" : "CAPTURED — HOLD TO SWING"} · ${(
-            s.sling.speed / 1000
-          ).toFixed(1)} km/s${s.sling.aligned ? " · ◎ RELEASE!" : ""}`
+        ? s.sling.atTarget && !s.sling.winding
+          ? `⭗ TARGET REACHED — LAND, or swing on`
+          : `⭗ ${s.sling.winding ? "SWINGING" : "CAPTURED — HOLD TO SWING"} · ${(
+              s.sling.speed / 1000
+            ).toFixed(1)} km/s${s.sling.aligned ? " · ◎ RELEASE!" : ""}`
         : null,
     );
     this.setStatus("assist", s.assistOn ? "🛬 LANDING ASSIST" : null);

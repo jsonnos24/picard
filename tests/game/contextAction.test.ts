@@ -4,6 +4,7 @@ import { contextAction, ContextInput } from "../../src/game/contextAction";
 const base: ContextInput = {
   phaseKind: "space",
   slingCaptured: false,
+  capturedAtTarget: false,
   cruising: false,
   charging: false,
   hasTarget: false,
@@ -15,6 +16,32 @@ describe("contextAction", () => {
     const v = contextAction({ ...base, slingCaptured: true, cruising: true, hasTarget: true });
     expect(v.intent).toBe("slingHold");
     expect(v.hold).toBe(true);
+  });
+
+  it("captured around the nav target: tap to land — arrival must not trap the player", () => {
+    // The release cue can never fire here (the snap target IS the swing
+    // center), so the button must offer the way down instead of the swing.
+    const v = contextAction({
+      ...base,
+      slingCaptured: true,
+      capturedAtTarget: true,
+      hasTarget: true,
+    });
+    expect(v.intent).toBe("landingAssist");
+    expect(v.label).toBe("LAND");
+    expect(v.hold).toBe(false);
+  });
+
+  it("captured at the target while assist already runs: label flips", () => {
+    const v = contextAction({
+      ...base,
+      slingCaptured: true,
+      capturedAtTarget: true,
+      hasTarget: true,
+      assistOn: true,
+    });
+    expect(v.intent).toBe("landingAssist");
+    expect(v.label).not.toBe("LAND");
   });
 
   it("cruising: tap to drop out", () => {

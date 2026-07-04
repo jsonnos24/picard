@@ -7,6 +7,7 @@ import { PhaseKind } from "../sim/GameState";
 export interface ContextInput {
   phaseKind: PhaseKind;
   slingCaptured: boolean;
+  capturedAtTarget: boolean; // the ring we're swinging in belongs to the nav target
   cruising: boolean;
   charging: boolean; // lightspeed sequence mid-charge/burst
   hasTarget: boolean;
@@ -20,6 +21,14 @@ export interface ContextVerb {
 }
 
 export function contextAction(c: ContextInput): ContextVerb {
+  // Arrival: swinging around the body you targeted. The aligned-release cue is
+  // geometrically impossible here (the snap target IS the swing center), so
+  // the swing verb would trap the player in orbit — offer the way down.
+  if (c.slingCaptured && c.capturedAtTarget) {
+    return c.assistOn
+      ? { label: "LANDING…", intent: "landingAssist", hold: false }
+      : { label: "LAND", intent: "landingAssist", hold: false };
+  }
   if (c.slingCaptured) return { label: "HOLD TO SWING", intent: "slingHold", hold: true };
   if (c.cruising) return { label: "DROP OUT", intent: "lightspeed", hold: false };
   if (c.charging) return { label: "CHARGING…", intent: null, hold: false };
