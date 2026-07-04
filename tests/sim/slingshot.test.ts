@@ -8,6 +8,7 @@ import {
   releaseFling,
   tickSling,
   sunRepel,
+  alignSwingPlane,
 } from "../../src/sim/slingshot";
 import { createSolarSystem, findBody, Body } from "../../src/sim/Body";
 import { Vec3 } from "../../src/sim/Vec3";
@@ -262,6 +263,89 @@ describe("chained arrival (lightspeed handoff invariant)", () => {
     const fling = releaseFling(c, mars, null, P);
     expect(fling.velocity.length()).toBeGreaterThan(arriveSpeed);
   });
+});
+
+describe("alignSwingPlane (tilted-entry orbit trap)", () => {
+  // A launch a few degrees off radial is NOT degenerate (no fallback plane),
+  // but its entry plane misses most targets — the tangent can then never
+  // sweep inside the snap cone and the ship circles forever. alignSwingPlane
+  // tips the plane about the current radius until it contains the target.
+  const up = new Vec3(1, 0, 0);
+  const toTarget = new Vec3(0.3, 0, 0.954).normalize(); // in the x/z ecliptic
+  // 8° off-radial climb, drifting out of the ecliptic (+y) — the trap case.
+  function tiltedCapture(): Extract<SlingState, { kind: "captured" }> {
+    const pos = mars.position.add(up.scale(mars.captureRadius - 1));
+    const vel = new Vec3(Math.cos(0.14), Math.sin(0.14), 0).scale(400);
+    const s = tryCapture(idleSling(), pos, vel, mars, fallback, DT, P);
+    expect(s.kind).toBe("captured");
+    return s as Extract<SlingState, { kind: "captured" }>;
+  }
+
+  it("REPRODUCES the trap: without alignment the tangent never enters the snap cone", () => {
+    let s: SlingState = tiltedCapture();
+    let bestDot = -2;
+    for (let i = 0; i < 60 * 60; i++) {
+      const r = stepSwing(s, mars, true, 0, DT, P);
+      s = r.state;
+      bestDot = Math.max(bestDot, r.vel.normalize().dot(toTarget));
+    }
+    expect(bestDot).toBeLessThan(Math.cos(P.snapCone)); // stuck: release can never snap
+  });
+
+  it("keeps the rail position and orthonormal basis while aligning", () => {
+    let s = tiltedCapture();
+    for (let i = 0; i < 120; i++) {
+      const before = railPosOf(s, mars);
+      const a = alignSwingPlane(s, toTarget, DT, P);
+      expect(a.kind).toBe("captured");
+      s = a as Extract<SlingState, { kind: "captured" }>;
+      const after = railPosOf(s, mars);
+      expect(after.sub(before).length()).toBeLessThan(1e-6); // no teleport
+      expect(Math.abs(s.e1.dot(s.e2))).toBeLessThan(1e-9);
+      expect(s.e1.length()).toBeCloseTo(1, 9);
+      expect(s.e2.length()).toBeCloseTo(1, 9);
+    }
+    // Plane now contains the target: normal ⊥ target.
+    const n = s.e1.cross(s.e2);
+    expect(Math.abs(n.dot(toTarget))).toBeLessThan(0.02);
+  });
+
+  it("rotates no faster than alignRate", () => {
+    const s = tiltedCapture();
+    const nBefore = s.e1.cross(s.e2).normalize();
+    const a = alignSwingPlane(s, toTarget, DT, P) as Extract<SlingState, { kind: "captured" }>;
+    const nAfter = a.e1.cross(a.e2).normalize();
+    const turned = Math.acos(Math.max(-1, Math.min(1, nBefore.dot(nAfter))));
+    expect(turned).toBeLessThanOrEqual(P.alignRate * DT + 1e-6);
+  });
+
+  it("leaves a degenerate target (parallel to the radius) unchanged", () => {
+    const s = tiltedCapture();
+    const radial = s.e1.scale(Math.cos(s.angle)).add(s.e2.scale(Math.sin(s.angle)));
+    const a = alignSwingPlane(s, radial, DT, P) as Extract<SlingState, { kind: "captured" }>;
+    const n0 = s.e1.cross(s.e2);
+    const n1 = a.e1.cross(a.e2);
+    expect(n1.sub(n0).length()).toBeLessThan(1e-9);
+  });
+
+  it("FIXES the trap: swinging with alignment brings the tangent into the snap cone", () => {
+    let s: SlingState = tiltedCapture();
+    let bestDot = -2;
+    for (let i = 0; i < 60 * 60; i++) {
+      s = alignSwingPlane(s, toTarget, DT, P);
+      const r = stepSwing(s, mars, true, 0, DT, P);
+      s = r.state;
+      bestDot = Math.max(bestDot, r.vel.normalize().dot(toTarget));
+      if (bestDot >= Math.cos(P.snapCone)) break;
+    }
+    expect(bestDot).toBeGreaterThanOrEqual(Math.cos(P.snapCone));
+  });
+
+  function railPosOf(s: Extract<SlingState, { kind: "captured" }>, body: Body): Vec3 {
+    return body.position
+      .add(s.e1.scale(Math.cos(s.angle) * s.radius))
+      .add(s.e2.scale(Math.sin(s.angle) * s.radius));
+  }
 });
 
 describe("sunRepel", () => {

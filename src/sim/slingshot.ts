@@ -19,6 +19,7 @@ export interface SlingParams {
   blendTime: number; // s — ease from free flight onto the rail
   snapCone: number; // rad — release snaps to the nav target inside this
   tiltRate: number; // rad/s of swing-plane tilt at full steer
+  alignRate: number; // rad/s the plane auto-tips to contain the nav target
   cooldown: number; // s after release before the next capture
 }
 
@@ -35,6 +36,7 @@ export const DEFAULT_SLING_PARAMS: SlingParams = {
   blendTime: 0.4,
   snapCone: 0.25,
   tiltRate: 0.5,
+  alignRate: 1.2,
   cooldown: 1.5,
 };
 
@@ -174,6 +176,42 @@ export function stepSwing(
     };
   }
   return { state: next, pos: rail.pos, vel: rail.vel };
+}
+
+// The release tangent only sweeps within the swing plane, so a target outside
+// the plane can NEVER be snapped to — an entry tilted even a few degrees off
+// the plane the player wants leaves them circling forever. Tip the plane about
+// the current radius (the rail point stays put) until it contains the target.
+export function alignSwingPlane(
+  state: SlingState,
+  toTarget: Vec3, // unit-agnostic direction toward the nav target
+  dt: number,
+  p: SlingParams = DEFAULT_SLING_PARAMS,
+): SlingState {
+  if (state.kind !== "captured") return state;
+  const { e1, e2, angle } = state;
+  const u = e1.scale(Math.cos(angle)).add(e2.scale(Math.sin(angle))); // radius dir
+  const tangent = e1.scale(-Math.sin(angle)).add(e2.scale(Math.cos(angle)));
+
+  const d = toTarget.normalize();
+  const wantN = u.cross(d); // normal of the plane through u AND the target
+  if (wantN.length() < 0.05) return state; // target (anti)radial — nothing to align
+  let nStar = wantN.normalize();
+  const n = e1.cross(e2).normalize();
+  if (nStar.dot(n) < 0) nStar = nStar.scale(-1); // keep the swing direction
+
+  // Signed tilt from n to n* about u, rate-limited.
+  const tilt = Math.atan2(n.cross(nStar).dot(u), n.dot(nStar));
+  const step = Math.max(-p.alignRate * dt, Math.min(p.alignRate * dt, tilt));
+  if (step === 0) return state;
+
+  // Rebase so e1 is the current radius (pose-preserving), then tip about it.
+  return {
+    ...state,
+    e1: u,
+    e2: rotateAboutAxis(tangent, u, step).normalize(),
+    angle: 0,
+  };
 }
 
 export interface Fling {

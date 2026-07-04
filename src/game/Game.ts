@@ -21,6 +21,7 @@ import {
   releaseFling,
   tickSling,
   sunRepel,
+  alignSwingPlane,
 } from "../sim/slingshot";
 import { createGravityRings } from "../render/scene/gravityRings";
 import { gravityAccel } from "../sim/gravity";
@@ -233,6 +234,13 @@ export class Game {
       }
 
       const steer = this.input.getAxis("steerY");
+      // Tip the swing plane to contain the nav target so an aligned release
+      // always exists — any entry can otherwise leave the target unreachable
+      // and the player circling forever. Manual steer overrides.
+      const navDir = this.navTargetDirection();
+      if (steer === 0 && navDir) {
+        this.sling = alignSwingPlane(this.sling, navDir, dt);
+      }
       const r = stepSwing(this.sling, body, held, steer, dt);
       this.sling = r.state;
       this.ship.position = r.pos;

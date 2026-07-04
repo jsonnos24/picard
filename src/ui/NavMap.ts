@@ -105,12 +105,20 @@ export class NavMap {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * this.canvas.width;
     const y = ((e.clientY - rect.top) / rect.height) * this.canvas.height;
+    // Nearest body wins — Earth and the Moon overlap inside the tap radius,
+    // and first-hit order made the Moon untappable.
+    let best: string | null = null;
+    let bestDist = 24 * this.dpr;
     for (const h of this.hit) {
-      if (Math.hypot(h.x - x, h.y - y) < 24 * this.dpr) {
-        this.target = h.name;
-        this.draw();
-        return;
+      const dist = Math.hypot(h.x - x, h.y - y);
+      if (dist < bestDist) {
+        best = h.name;
+        bestDist = dist;
       }
+    }
+    if (best) {
+      this.target = best;
+      this.draw();
     }
   }
 }
