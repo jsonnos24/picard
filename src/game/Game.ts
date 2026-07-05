@@ -666,7 +666,7 @@ export class Game {
   private keyboardHint(): string | null {
     if (this.sling.kind === "captured") {
       if (this.capturedAtTarget() && !this.input.isActive("slingHold")) {
-        return "you've arrived — L to land · or hold SPACE to swing on";
+        return "you've arrived — L to land · J to jump away · SPACE to swing";
       }
       return this.input.isActive("slingHold")
         ? "release SPACE to fling · or J to jump now"
@@ -793,20 +793,14 @@ export class Game {
       phaseKind: this.phase.kind,
     });
     if (decision === "none") return;
-    if (decision === "freeJump") {
-      // No destination needed: charge up and fly wherever the nose points.
-      this.lsTargetName = null;
-      this.lsFree = true;
-      this.lsSeq = startCharge();
-      return;
-    }
     if (decision === "land") {
       // You're already at the target — J finishes the trip.
       this.assistOn = true;
       return;
     }
     if (this.sling.kind === "captured") {
-      // J while swinging: release the sling and jump in one motion.
+      // J while swinging: release the sling and jump in one motion — a bare
+      // fling near a planet falls back inbound and recaptures forever.
       const body = findBody(this.bodies, this.sling.bodyName);
       const fling = releaseFling(this.sling, body, this.navTargetDirection());
       this.sling = fling.state;
@@ -815,7 +809,14 @@ export class Game {
       if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2;
       this.slingHeldPrev = false;
     }
-    if (decision === "jump" || !name) return;
+    if (decision === "freeJump") {
+      // No destination needed: charge up and fly wherever the nose points
+      // (after a release, that's the fling direction — straight out of town).
+      this.lsTargetName = null;
+      this.lsFree = true;
+      this.lsSeq = startCharge();
+      return;
+    }
     this.lsTargetName = name;
     if (this.missionElapsed <= this.lsGraceUntil) {
       // A perfect (snapped) sling release chains straight into the leap.

@@ -8,7 +8,7 @@
 
 // freeJump: no destination needed — cruise wherever the nose points and let
 // the first gravity bubble on the flight ray end the trip.
-export type JumpDecision = "none" | "jump" | "lightspeed" | "land" | "freeJump";
+export type JumpDecision = "none" | "lightspeed" | "land" | "freeJump";
 
 // J is a toggle that answers on every tap: start a jump, abort the wind-up,
 // or drop out of the cruise — never a dead key waiting for a cinematic.
@@ -33,8 +33,9 @@ const CAN_JUMP = new Set(["landed", "space", "launching", "descending"]);
 
 export function jumpDecision(ctx: JumpContext): JumpDecision {
   if (!ctx.targetName) {
-    // No destination: J is still the swing escape hatch; otherwise fly free.
-    if (ctx.capturedBody) return "jump";
+    // No destination: fly free. Captured counts — release AND jump in one
+    // motion; a bare fling falls back inbound and the ring recaptures it.
+    if (ctx.capturedBody) return "freeJump";
     return CAN_JUMP.has(ctx.phaseKind) ? "freeJump" : "none";
   }
   if (!CAN_JUMP.has(ctx.phaseKind)) return "none";

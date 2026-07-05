@@ -55,8 +55,9 @@ describe("jumpDecision — what J does", () => {
     expect(jumpDecision(ctx({ targetDist: 8_000 }))).toBe("land");
   });
 
-  it("jumps out of the swing when no target is set", () => {
-    expect(jumpDecision(ctx({ capturedBody: "Earth", targetName: null }))).toBe("jump");
+  it("releases the swing AND jumps when no target is set", () => {
+    // A bare fling near a planet falls back inbound and recaptures forever.
+    expect(jumpDecision(ctx({ capturedBody: "Earth", targetName: null }))).toBe("freeJump");
   });
 
   it("free-jumps along the nose with no target and no swing", () => {
