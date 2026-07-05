@@ -63,8 +63,11 @@ describe("jumpDecision — what J does", () => {
     expect(jumpDecision(ctx({ targetName: null }))).toBe("none");
   });
 
-  it("does nothing while landed", () => {
-    expect(jumpDecision(ctx({ phaseKind: "landed" }))).toBe("none");
+  it("lightspeeds straight off the pad — J is the go button", () => {
+    expect(jumpDecision(ctx({ phaseKind: "landed" }))).toBe("lightspeed");
+  });
+
+  it("does nothing when landed ON the targeted body", () => {
     expect(jumpDecision(ctx({ phaseKind: "landed", targetDist: 8_000 }))).toBe("none");
   });
 

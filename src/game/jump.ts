@@ -26,17 +26,19 @@ export interface JumpContext {
   phaseKind: string;
 }
 
-const FLIGHT = new Set(["space", "launching", "descending"]);
+// "landed" counts: J is the go button — a jump charges on the pad and leaps.
+const CAN_JUMP = new Set(["landed", "space", "launching", "descending"]);
 
 export function jumpDecision(ctx: JumpContext): JumpDecision {
   if (!ctx.targetName) {
     // No destination: J is still the swing escape hatch.
     return ctx.capturedBody ? "jump" : "none";
   }
-  if (!FLIGHT.has(ctx.phaseKind)) return "none";
+  if (!CAN_JUMP.has(ctx.phaseKind)) return "none";
   if (ctx.targetDist <= ctx.targetCaptureRadius) {
-    // Already at the target — finish the trip instead of flinging away.
-    return ctx.phaseKind === "launching" ? "none" : "land";
+    // Already at the target — finish the trip instead of flinging away;
+    // on the ground or climbing off it, there is nothing to do.
+    return ctx.phaseKind === "landed" || ctx.phaseKind === "launching" ? "none" : "land";
   }
   return "lightspeed";
 }

@@ -644,7 +644,9 @@ export class Game {
     if (this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst") return null;
     switch (this.phase.kind) {
       case "landed":
-        return "hold W to launch · F to hop out";
+        return this.navmap.targetName
+          ? `J — lightspeed to ${this.navmap.targetName} · hold W to launch · F to hop out`
+          : "hold W to launch · M — open the map, tap a planet · F to hop out";
       case "launching":
       case "space": {
         const brake =
