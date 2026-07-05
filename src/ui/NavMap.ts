@@ -1,5 +1,6 @@
 import { Body } from "../sim/Body";
 import { Vec3 } from "../sim/Vec3";
+import { projectSystem } from "./mapProjection";
 
 export class NavMap {
   private readonly el: HTMLDivElement;
@@ -56,40 +57,26 @@ export class NavMap {
     if (this.open) this.draw();
   }
 
-  // Top-down view of the ecliptic: world x/z fitted to the canvas with margins.
-  private worldToMap(x: number, z: number): { px: number; py: number } {
-    const margin = 40 * this.dpr;
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    for (const b of this.bodies) {
-      minX = Math.min(minX, b.position.x);
-      maxX = Math.max(maxX, b.position.x);
-      minZ = Math.min(minZ, b.position.z);
-      maxZ = Math.max(maxZ, b.position.z);
-    }
-    // One scale for both axes: the layout is a radial spread around the Sun,
-    // and per-axis fitting would squash it into an ellipse.
-    const spanX = Math.max(1, maxX - minX);
-    const spanZ = Math.max(1, maxZ - minZ);
-    const scale = Math.min(
-      (this.canvas.width - 2 * margin) / spanX,
-      (this.canvas.height - 2 * margin) / spanZ,
-    );
-    const px = this.canvas.width / 2 + (x - (minX + maxX) / 2) * scale;
-    const py = this.canvas.height / 2 + (z - (minZ + maxZ) / 2) * scale;
-    return { px, py };
-  }
-
   private draw(): void {
     this.ensureSize();
     const c = this.ctx;
     const k = this.dpr;
-    c.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    c.clearRect(0, 0, w, h);
     this.hit.length = 0;
-    for (const b of this.bodies) {
-      const { px, py } = this.worldToMap(b.position.x, b.position.z);
+    const proj = projectSystem(this.bodies, w, h, 28 * k, 24 * k);
+    // Orbit rings first — they're what makes it read as a solar system.
+    c.strokeStyle = "rgba(140, 170, 220, 0.22)";
+    c.lineWidth = 1 * k;
+    for (const r of proj.rings) {
+      c.beginPath();
+      c.arc(w / 2, h / 2, r, 0, Math.PI * 2);
+      c.stroke();
+    }
+    for (let i = 0; i < this.bodies.length; i++) {
+      const b = this.bodies[i];
+      const { px, py } = proj.points[i];
       const dotR = (b.kind === "star" ? 12 : b.kind === "moon" ? 4 : 7) * k;
       c.fillStyle =
         b.name === this.target ? "#6f6" : "#" + b.color.toString(16).padStart(6, "0");
@@ -98,11 +85,13 @@ export class NavMap {
       c.fill();
       c.fillStyle = "#9cf";
       c.font = `${11 * k}px monospace`;
-      c.fillText(b.name, px - 12 * k, py + dotR + 14 * k);
+      // Moons label above their dot so they don't collide with the planet's.
+      const ly = b.kind === "moon" ? py - dotR - 6 * k : py + dotR + 14 * k;
+      c.fillText(b.name, px - 12 * k, ly);
       this.hit.push({ name: b.name, x: px, y: py });
     }
     // ship marker
-    const s = this.worldToMap(this.shipPos.x, this.shipPos.z);
+    const s = proj.project(this.shipPos.x, this.shipPos.z);
     c.fillStyle = "#ff6";
     c.fillRect(s.px - 3 * k, s.py - 3 * k, 6 * k, 6 * k);
   }
