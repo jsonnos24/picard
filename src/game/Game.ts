@@ -97,6 +97,8 @@ export class Game {
   private lsFovScale = 1;
   private sling: SlingState = idleSling();
   private slingHeldPrev = false;
+  private notice: string | null = null;
+  private noticeUntil = 0; // missionElapsed deadline for the transient notice
   private brake: BrakeState = idleBrake();
   private breakHold = 0; // seconds W has been held while captured (rail breakaway)
   private preBrakeOrient: Vec3 | null = null; // orientation to restore if the brake is released early
@@ -621,7 +623,9 @@ export class Game {
         ? "☀ SOLAR HEAT — PULL AWAY"
         : vUp < -20 && pb.altitude < 500
           ? "HIGH DESCENT RATE"
-          : null,
+          : this.missionElapsed < this.noticeUntil
+            ? this.notice
+            : null,
       lightspeedEta,
       sling,
       missionSeconds: this.missionElapsed,
@@ -705,6 +709,11 @@ export class Game {
     this.lsSeq = r.lsSeq;
   }
 
+  private showNotice(text: string): void {
+    this.notice = text;
+    this.noticeUntil = this.missionElapsed + 3.5;
+  }
+
   // Swinging in the ring of the body the player navigated to — arrival. The
   // aligned-release cue can never fire here (the snap target is the swing
   // center), so arrival UI must offer landing, not endless swinging.
@@ -748,6 +757,16 @@ export class Game {
       phaseKind: this.phase.kind,
     });
     if (decision === "none") return;
+    if (decision === "pickTarget") {
+      // J with nowhere to go: open the map and say why, don't die silently.
+      if (!this.navmap.isOpen) this.navmap.toggle();
+      this.showNotice("PICK A DESTINATION ON THE MAP");
+      return;
+    }
+    if (decision === "atTarget") {
+      this.showNotice(`ALREADY AT ${name?.toUpperCase()} — PICK A NEW DESTINATION (M)`);
+      return;
+    }
     if (decision === "land") {
       // You're already at the target — J finishes the trip.
       this.assistOn = true;

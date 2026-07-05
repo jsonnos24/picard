@@ -59,20 +59,26 @@ describe("jumpDecision — what J does", () => {
     expect(jumpDecision(ctx({ capturedBody: "Earth", targetName: null }))).toBe("jump");
   });
 
-  it("does nothing with no target and no swing", () => {
-    expect(jumpDecision(ctx({ targetName: null }))).toBe("none");
+  it("asks for a destination with no target and no swing", () => {
+    // Silent J reads as a dead key — send the player to the map instead.
+    expect(jumpDecision(ctx({ targetName: null }))).toBe("pickTarget");
+  });
+
+  it("asks for a destination from the pad when none is set", () => {
+    expect(jumpDecision(ctx({ targetName: null, phaseKind: "landed" }))).toBe("pickTarget");
   });
 
   it("lightspeeds straight off the pad — J is the go button", () => {
     expect(jumpDecision(ctx({ phaseKind: "landed" }))).toBe("lightspeed");
   });
 
-  it("does nothing when landed ON the targeted body", () => {
-    expect(jumpDecision(ctx({ phaseKind: "landed", targetDist: 8_000 }))).toBe("none");
+  it("says 'already here' when landed ON the targeted body", () => {
+    expect(jumpDecision(ctx({ phaseKind: "landed", targetDist: 8_000 }))).toBe("atTarget");
   });
 
   it("does nothing while on foot", () => {
     expect(jumpDecision(ctx({ phaseKind: "onFoot" }))).toBe("none");
+    expect(jumpDecision(ctx({ phaseKind: "onFoot", targetName: null }))).toBe("none");
   });
 
   it("still works during launch and descent", () => {
@@ -81,7 +87,7 @@ describe("jumpDecision — what J does", () => {
   });
 
   it("does not land-abort a launch off the targeted body itself", () => {
-    expect(jumpDecision(ctx({ phaseKind: "launching", targetDist: 8_000 }))).toBe("none");
+    expect(jumpDecision(ctx({ phaseKind: "launching", targetDist: 8_000 }))).toBe("atTarget");
   });
 
   it("lands at the target during descent", () => {
