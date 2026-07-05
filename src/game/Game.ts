@@ -50,6 +50,7 @@ import { contextAction } from "./contextAction";
 import {
   DEFAULT_LS_PARAMS,
   lightspeedStep,
+  freeCruiseStep,
   brakeStep,
   etaSeconds,
 } from "../sim/lightspeed";
@@ -92,6 +93,8 @@ export class Game {
   private warpFx!: { update(cameraPos: THREE.Vector3, tunnel: number, flash: number): void };
   private lsSeq: LsSeq = idleSeq();
   private lsTargetName: string | null = null; // pending (charging) or active cruise target
+  private lsFree = false; // pending or active point-and-fly jump (no target)
+  private lsFreeDir: Vec3 | null = null; // persistent nose direction of a free cruise
   private cruising = false;
   private lsBraking = false; // cancelled mid-cruise: bleeding speed back down
   private lsFovScale = 1;
@@ -195,6 +198,29 @@ export class Game {
         this.cruising = false;
         this.lsTargetName = null;
         this.lsSeq = endCruise(this.lsSeq);
+      }
+      this.updatePhaseFromAltitude();
+      return;
+    }
+
+    // Point-and-fly cruise: no target — fly the nose until a gravity bubble
+    // on the ray ends the trip (handed off exactly like a guided arrival).
+    if (this.cruising) {
+      const steer = { x: this.input.getAxis("steerX"), y: this.input.getAxis("steerY") };
+      const dir = this.lsFreeDir ?? this.ship.orientation.normalize();
+      const r = freeCruiseStep(this.ship.position, this.ship.velocity, dir, steer, dt, this.bodies);
+      this.ship.position = r.pos;
+      this.ship.velocity = r.vel;
+      this.lsFreeDir = r.dir;
+      this.ship.throttle = 0;
+      this.setOrient(r.vel.normalize());
+      this.angular = zeroAngular();
+      if (r.done) {
+        this.cruising = false;
+        this.lsFree = false;
+        this.lsFreeDir = null;
+        this.lsSeq = endCruise(this.lsSeq);
+        if (r.bodyName) this.showNotice(`ENTERING ${r.bodyName.toUpperCase()}'S GRAVITY RING`);
       }
       this.updatePhaseFromAltitude();
       return;
@@ -464,9 +490,10 @@ export class Game {
     const w = stepLsSeq(this.lsSeq, dt, cruiseIntensity);
     this.lsSeq = w.seq;
     this.lsFovScale = w.fovScale;
-    if (w.engage && this.lsTargetName) {
+    if (w.engage && (this.lsTargetName || this.lsFree)) {
       this.cruising = true;
       this.lsBraking = false;
+      if (this.lsFree) this.lsFreeDir = this.ship.orientation.normalize();
       this.rig.resetLook();
     }
     this.dust.update(dt);
@@ -651,14 +678,14 @@ export class Game {
       case "landed":
         return this.navmap.targetName
           ? `J — lightspeed to ${this.navmap.targetName} · hold W to launch · F to hop out`
-          : "hold W to launch · M — open the map, tap a planet · F to hop out";
+          : "J — lightspeed where you point · hold W to launch · F to hop out";
       case "launching":
       case "space": {
         const brake =
           this.ship.velocity.length() > 50 && this.ship.throttle <= 0 ? " · hold S to brake" : "";
         return this.navmap.targetName
           ? `J — lightspeed to ${this.navmap.targetName}${brake}`
-          : `M — open the map, tap a planet${brake}`;
+          : `J — lightspeed where you point · M for a guided trip${brake}`;
       }
       case "descending":
         return this.assistOn ? null : "L — auto-land · hold S to brake";
@@ -707,6 +734,8 @@ export class Game {
     this.lsTargetName = r.lsTargetName;
     this.lsBraking = r.lsBraking;
     this.lsSeq = r.lsSeq;
+    this.lsFree = r.lsFree;
+    this.lsFreeDir = r.lsFreeDir;
   }
 
   private showNotice(text: string): void {
@@ -714,11 +743,15 @@ export class Game {
     this.noticeUntil = this.missionElapsed + 3.5;
   }
 
-  // Swinging in the ring of the body the player navigated to — arrival. The
-  // aligned-release cue can never fire here (the snap target is the swing
-  // center), so arrival UI must offer landing, not endless swinging.
+  // Swinging in the ring of the body the player meant to reach — arrival.
+  // With a nav target that's the targeted body; with none (point-and-fly)
+  // any capture counts: you flew here on purpose, and the aligned-release
+  // cue can never fire without a target direction either way. Arrival UI
+  // must offer landing, not endless swinging.
   private capturedAtTarget(): boolean {
-    return this.sling.kind === "captured" && this.sling.bodyName === this.navmap.targetName;
+    if (this.sling.kind !== "captured") return false;
+    const target = this.navmap.targetName;
+    return target === null || this.sling.bodyName === target;
   }
 
   // Unit direction from the ship to the nav target, if one is set.
@@ -735,6 +768,8 @@ export class Game {
       // Cancel: wind the cinematics down and bleed speed off.
       this.cruising = false;
       this.lsTargetName = null;
+      this.lsFree = false;
+      this.lsFreeDir = null;
       this.lsBraking = true;
       this.lsSeq = endCruise(this.lsSeq);
       return;
@@ -743,6 +778,7 @@ export class Game {
       // Second tap mid-wind-up: never happened.
       this.lsSeq = endCruise(this.lsSeq);
       this.lsTargetName = null;
+      this.lsFree = false;
       return;
     }
     // Decide before touching anything: the old fling-first-validate-after
@@ -757,14 +793,11 @@ export class Game {
       phaseKind: this.phase.kind,
     });
     if (decision === "none") return;
-    if (decision === "pickTarget") {
-      // J with nowhere to go: open the map and say why, don't die silently.
-      if (!this.navmap.isOpen) this.navmap.toggle();
-      this.showNotice("PICK A DESTINATION ON THE MAP");
-      return;
-    }
-    if (decision === "atTarget") {
-      this.showNotice(`ALREADY AT ${name?.toUpperCase()} — PICK A NEW DESTINATION (M)`);
+    if (decision === "freeJump") {
+      // No destination needed: charge up and fly wherever the nose points.
+      this.lsTargetName = null;
+      this.lsFree = true;
+      this.lsSeq = startCharge();
       return;
     }
     if (decision === "land") {

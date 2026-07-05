@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_LS_PARAMS,
   lightspeedStep,
+  freeCruiseStep,
   brakeStep,
   etaSeconds,
 } from "../../src/sim/lightspeed";
@@ -159,5 +160,93 @@ describe("etaSeconds", () => {
   it("is zero at (or inside) the drop radius", () => {
     expect(etaSeconds(0, 5000, P)).toBe(0);
     expect(etaSeconds(-100, 5000, P)).toBe(0);
+  });
+});
+
+describe("freeCruiseStep — point-and-fly, no destination", () => {
+  const p = DEFAULT_LS_PARAMS;
+  const dt = 1 / 120;
+
+  // Fly from pos along dir until dropout or timeout; returns the last result.
+  function flyFree(pos: Vec3, dir: Vec3, obstacles: Body[], maxSec = 120) {
+    let vel = dir.scale(1);
+    let d = dir;
+    for (let t = 0; t < maxSec; t += dt) {
+      const r = freeCruiseStep(pos, vel, d, { x: 0, y: 0 }, dt, obstacles);
+      pos = r.pos;
+      vel = r.vel;
+      d = r.dir;
+      if (r.done) return { ...r, t };
+    }
+    return null;
+  }
+
+  it("accelerates along the nose to vMax with nothing ahead", () => {
+    let pos = new Vec3(0, 1e9, 0); // far above the ecliptic — empty sky
+    let vel = new Vec3(0, 0, 0);
+    let dir = new Vec3(0, 1, 0);
+    for (let t = 0; t < 60; t += dt) {
+      const r = freeCruiseStep(pos, vel, dir, { x: 0, y: 0 }, dt, bodies);
+      pos = r.pos;
+      vel = r.vel;
+      expect(r.done).toBe(false);
+    }
+    expect(vel.length()).toBeCloseTo(p.vMax, 0);
+    expect(vel.normalize().dot(dir)).toBeCloseTo(1, 5);
+  });
+
+  it("drops out at the ring of a body dead ahead, at vArrive, inbound", () => {
+    const mars = findBody(bodies, "Mars");
+    const start = mars.position.add(new Vec3(500_000, 0, 0));
+    const r = flyFree(start, new Vec3(-1, 0, 0), bodies);
+    expect(r).not.toBeNull();
+    const dist = r!.pos.sub(mars.position).length();
+    expect(dist).toBeLessThanOrEqual(mars.captureRadius * 1.01);
+    expect(r!.vel.length()).toBeCloseTo(p.vArrive, 0);
+    // moving inward, toward the body
+    expect(r!.vel.dot(mars.position.sub(r!.pos))).toBeGreaterThan(0);
+  });
+
+  it("hands off aimed at a flyby offset, never dead-centre", () => {
+    const mars = findBody(bodies, "Mars");
+    const start = mars.position.add(new Vec3(500_000, 0, 0));
+    const r = flyFree(start, new Vec3(-1, 0, 0), bodies)!;
+    // Project the handoff ray to closest approach: must miss the core.
+    const toBody = mars.position.sub(r.pos);
+    const along = r.vel.normalize();
+    const closest = toBody.sub(along.scale(toBody.dot(along))).length();
+    expect(closest).toBeGreaterThan(mars.radius);
+  });
+
+  it("ignores the bubble it starts inside — launches escape their own planet", () => {
+    const earth = findBody(bodies, "Earth");
+    const pad = earth.position.add(new Vec3(0, earth.radius, 0));
+    let pos = pad;
+    let vel = new Vec3(0, 0, 0);
+    const up = new Vec3(0, 1, 0);
+    for (let t = 0; t < 3; t += dt) {
+      const r = freeCruiseStep(pos, vel, up, { x: 0, y: 0 }, dt, bodies);
+      expect(r.done).toBe(false); // must not instantly re-arrive at Earth
+      pos = r.pos;
+      vel = r.vel;
+    }
+    expect(pos.sub(earth.position).length()).toBeGreaterThan(earth.captureRadius);
+  });
+
+  it("flies straight past bubbles the ray misses", () => {
+    const mars = findBody(bodies, "Mars");
+    // Aim well wide of Mars: lateral offset 3x the capture radius.
+    const start = mars.position.add(new Vec3(500_000, 0, mars.captureRadius * 3));
+    const r = flyFree(start, new Vec3(-1, 0, 0), bodies, 10);
+    expect(r).toBeNull(); // never dropped out
+  });
+
+  it("steering bends the persistent cruise direction", () => {
+    const pos = new Vec3(0, 1e9, 0);
+    const vel = new Vec3(0, 0, p.vMax);
+    const dir = new Vec3(0, 0, 1);
+    const r = freeCruiseStep(pos, vel, dir, { x: 1, y: 0 }, dt, []);
+    expect(r.dir.dot(dir)).toBeLessThan(1 - 1e-6);
+    expect(r.dir.length()).toBeCloseTo(1, 6);
   });
 });

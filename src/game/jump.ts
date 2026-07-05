@@ -6,9 +6,9 @@
 // fling aborted inside the target's ring, and the next press cruised you
 // right back into capture.)
 
-// pickTarget: J with no destination — steer the player to the map instead of
-// dying silently. atTarget: standing on (or lifting off) the destination.
-export type JumpDecision = "none" | "jump" | "lightspeed" | "land" | "pickTarget" | "atTarget";
+// freeJump: no destination needed — cruise wherever the nose points and let
+// the first gravity bubble on the flight ray end the trip.
+export type JumpDecision = "none" | "jump" | "lightspeed" | "land" | "freeJump";
 
 // J is a toggle that answers on every tap: start a jump, abort the wind-up,
 // or drop out of the cruise — never a dead key waiting for a cinematic.
@@ -33,15 +33,15 @@ const CAN_JUMP = new Set(["landed", "space", "launching", "descending"]);
 
 export function jumpDecision(ctx: JumpContext): JumpDecision {
   if (!ctx.targetName) {
-    // No destination: J is still the swing escape hatch; otherwise ask.
+    // No destination: J is still the swing escape hatch; otherwise fly free.
     if (ctx.capturedBody) return "jump";
-    return CAN_JUMP.has(ctx.phaseKind) ? "pickTarget" : "none";
+    return CAN_JUMP.has(ctx.phaseKind) ? "freeJump" : "none";
   }
   if (!CAN_JUMP.has(ctx.phaseKind)) return "none";
   if (ctx.targetDist <= ctx.targetCaptureRadius) {
     // Already at the target — finish the trip instead of flinging away;
-    // on the ground or climbing off it, say so instead of going quiet.
-    return ctx.phaseKind === "landed" || ctx.phaseKind === "launching" ? "atTarget" : "land";
+    // on the ground or climbing off it, J just goes (nose-first).
+    return ctx.phaseKind === "landed" || ctx.phaseKind === "launching" ? "freeJump" : "land";
   }
   return "lightspeed";
 }

@@ -17,5 +17,7 @@ describe("padReset", () => {
     expect(r.lsTargetName).toBeNull();
     expect(r.lsBraking).toBe(false);
     expect(r.lsSeq.phase).toBe("idle");
+    expect(r.lsFree).toBe(false);
+    expect(r.lsFreeDir).toBeNull();
   });
 });

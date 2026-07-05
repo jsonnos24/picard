@@ -1,5 +1,6 @@
 import { idleSling, type SlingState } from "../sim/slingshot";
 import { idleSeq, type LsSeq } from "./feel/lightspeedSequence";
+import type { Vec3 } from "../sim/Vec3";
 
 export interface PadResetState {
   sling: SlingState;
@@ -8,6 +9,8 @@ export interface PadResetState {
   lsTargetName: string | null;
   lsBraking: boolean;
   lsSeq: LsSeq;
+  lsFree: boolean;
+  lsFreeDir: Vec3 | null;
 }
 
 // State a crash reset must scrub: anything that can move the ship on its own.
@@ -21,5 +24,7 @@ export function padReset(): PadResetState {
     lsTargetName: null,
     lsBraking: false,
     lsSeq: idleSeq(),
+    lsFree: false,
+    lsFreeDir: null,
   };
 }

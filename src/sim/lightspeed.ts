@@ -94,6 +94,93 @@ export function lightspeedStep(
   return { pos: pos.add(dir.scale(speed * dt)), vel: dir.scale(speed), done: false };
 }
 
+export interface FreeObstacle {
+  name: string;
+  position: Vec3;
+  radius: number;
+  captureRadius: number;
+}
+
+export interface FreeStepResult {
+  pos: Vec3;
+  vel: Vec3;
+  dir: Vec3; // persistent nose direction (steering bends it)
+  done: boolean; // flew into a gravity bubble — hand off to capture
+  bodyName: string | null; // whose bubble ended the cruise
+}
+
+// Point-and-fly: no destination, just the nose. Scan the flight ray for the
+// nearest gravity bubble it actually enters; brake toward that entry point
+// with the same trapezoid as guided flight and hand off at the ring exactly
+// like a guided arrival (flyby offset, vArrive, inbound). Bubbles the ray
+// misses are flown straight past; the bubble the ship starts inside is being
+// left, not arrived at.
+export function freeCruiseStep(
+  pos: Vec3,
+  vel: Vec3,
+  dir: Vec3,
+  steer: { x: number; y: number },
+  dt: number,
+  obstacles: FreeObstacle[],
+  p: LsParams = DEFAULT_LS_PARAMS,
+): FreeStepResult {
+  let d = dir.normalize();
+  const sx = clamp1(steer.x) * p.steerMax * dt;
+  const sy = clamp1(steer.y) * p.steerMax * dt;
+  if (sx !== 0 || sy !== 0) {
+    const ref = Math.abs(d.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+    const right = d.cross(ref).normalize();
+    const up = right.cross(d).normalize();
+    d = rotateAboutAxis(rotateAboutAxis(d, up, sx), right, sy).normalize();
+  }
+
+  let bestS = Infinity;
+  let bestBody: FreeObstacle | null = null;
+  for (const b of obstacles) {
+    const to = b.position.sub(pos);
+    const distC = to.length();
+    if (distC <= b.captureRadius) continue; // already inside: leaving it
+    const proj = to.dot(d);
+    if (proj <= 0) continue; // behind the nose
+    const perp2 = distC * distC - proj * proj;
+    const R2 = b.captureRadius * b.captureRadius;
+    if (perp2 >= R2) continue; // ray misses the bubble
+    const s = proj - Math.sqrt(R2 - perp2); // distance to bubble entry
+    if (s < bestS) {
+      bestS = s;
+      bestBody = b;
+    }
+  }
+
+  const vDes = bestBody
+    ? Math.min(p.vMax, Math.sqrt(p.vArrive * p.vArrive + 2 * p.aBrake * Math.max(0, bestS)))
+    : p.vMax;
+  const speedNow = vel.length();
+  const speed =
+    speedNow < vDes
+      ? Math.min(vDes, speedNow + p.aAccel * dt)
+      : Math.max(vDes, speedNow - p.aBrake * dt);
+
+  if (bestBody && bestS <= speed * dt) {
+    // Same handoff as a guided arrival: on the ring, aimed at a flyby point.
+    const dropPos = pos.add(d.scale(bestS));
+    const dirTo = bestBody.position.sub(dropPos).normalize();
+    const ref = Math.abs(dirTo.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+    const side = dirTo.cross(ref).normalize();
+    const offset = Math.min(p.flybyRadiusFactor * bestBody.radius, 0.7 * bestBody.captureRadius);
+    const flybyPoint = bestBody.position.add(side.scale(offset));
+    return {
+      pos: dropPos,
+      vel: flybyPoint.sub(dropPos).normalize().scale(p.vArrive),
+      dir: d,
+      done: true,
+      bodyName: bestBody.name,
+    };
+  }
+
+  return { pos: pos.add(d.scale(speed * dt)), vel: d.scale(speed), dir: d, done: false, bodyName: null };
+}
+
 // Cancelling mid-cruise: bleed speed down to vDrift so the player is left
 // drifting at a pace the landing assist can actually arrest.
 export function brakeStep(

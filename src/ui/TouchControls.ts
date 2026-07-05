@@ -16,6 +16,7 @@ export class TouchControls {
   private readonly jumpBtn: HTMLButtonElement;
   private readonly exitBtn: HTMLButtonElement;
   private readonly brakeBtn: HTMLButtonElement;
+  private readonly warpBtn: HTMLButtonElement;
   private contextIntent: Intent | null = null;
   private contextDown = false;
   private steerPointer: number | null = null;
@@ -39,6 +40,7 @@ export class TouchControls {
     this.jumpBtn = this.makeTapButton(cluster, "JUMP", "jump");
     this.exitBtn = this.makeTapButton(cluster, "EXIT", "toggleExit");
     this.brakeBtn = this.makeTapButton(cluster, "BRAKE", "throttleDown");
+    this.warpBtn = this.makeTapButton(cluster, "WARP", "lightspeed");
     this.makeTapButton(cluster, "MAP", "openMap");
     this.makeTapButton(cluster, "CAM", "toggleCamera");
     this.el.appendChild(cluster);
@@ -115,5 +117,8 @@ export class TouchControls {
     this.jumpBtn.style.display = onFoot ? "" : "none";
     this.exitBtn.style.display = landed ? "" : "none";
     this.brakeBtn.style.display = flying ? "" : "none";
+    // Point-and-fly: lightspeed no longer needs a target, so WARP is always
+    // one tap away whenever the ship can jump at all.
+    this.warpBtn.style.display = flying || landed ? "" : "none";
   }
 }
