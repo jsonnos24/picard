@@ -69,10 +69,16 @@ export class NavMap {
       minZ = Math.min(minZ, b.position.z);
       maxZ = Math.max(maxZ, b.position.z);
     }
+    // One scale for both axes: the layout is a radial spread around the Sun,
+    // and per-axis fitting would squash it into an ellipse.
     const spanX = Math.max(1, maxX - minX);
     const spanZ = Math.max(1, maxZ - minZ);
-    const px = margin + ((x - minX) / spanX) * (this.canvas.width - 2 * margin);
-    const py = margin + ((z - minZ) / spanZ) * (this.canvas.height - 2 * margin);
+    const scale = Math.min(
+      (this.canvas.width - 2 * margin) / spanX,
+      (this.canvas.height - 2 * margin) / spanZ,
+    );
+    const px = this.canvas.width / 2 + (x - (minX + maxX) / 2) * scale;
+    const py = this.canvas.height / 2 + (z - (minZ + maxZ) / 2) * scale;
     return { px, py };
   }
 

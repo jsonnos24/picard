@@ -73,4 +73,39 @@ describe("Body (toy solar system)", () => {
   it("findBody throws on unknown names", () => {
     expect(() => findBody(bodies, "Pluto")).toThrow(/Unknown body/);
   });
+
+  // A realistic snapshot puts the Sun in the middle of the system, not at
+  // one end of a line — the nav map auto-fits to the bodies' bounds, so
+  // these invariants are what make the Sun render at the centre of the map.
+  it("planets surround the Sun in all four ecliptic quadrants", () => {
+    const sun = findBody(bodies, "Sun");
+    const quadrants = new Set<string>();
+    for (const b of bodies) {
+      if (b.kind !== "planet") continue;
+      const dx = b.position.x - sun.position.x;
+      const dz = b.position.z - sun.position.z;
+      quadrants.add(`${dx > 0 ? "+" : "-"}${dz > 0 ? "+" : "-"}`);
+    }
+    expect(quadrants.size).toBe(4);
+  });
+
+  it("keeps the Sun near the centre of the layout's bounding box", () => {
+    const sun = findBody(bodies, "Sun");
+    const xs = bodies.map((b) => b.position.x);
+    const zs = bodies.map((b) => b.position.z);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+    const spanX = Math.max(...xs) - Math.min(...xs);
+    const spanZ = Math.max(...zs) - Math.min(...zs);
+    expect(Math.abs(sun.position.x - cx)).toBeLessThan(spanX * 0.25);
+    expect(Math.abs(sun.position.z - cz)).toBeLessThan(spanZ * 0.25);
+  });
+
+  it("keeps the Moon a short hop from Earth", () => {
+    const earth = findBody(bodies, "Earth");
+    const moon = findBody(bodies, "Moon");
+    const dist = moon.position.sub(earth.position).length();
+    expect(dist).toBeLessThan(60_000); // m
+    expect(dist).toBeGreaterThan(earth.captureRadius + moon.captureRadius);
+  });
 });
