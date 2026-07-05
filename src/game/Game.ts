@@ -37,6 +37,7 @@ import { thrustDirection } from "./attitude";
 import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { BrakeState, idleBrake, stepBrake } from "./retroBrake";
+import { stepBreakaway } from "./breakaway";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { jumpDecision } from "./jump";
 import { evaluateTouchdown } from "./landing";
@@ -96,6 +97,7 @@ export class Game {
   private sling: SlingState = idleSling();
   private slingHeldPrev = false;
   private brake: BrakeState = idleBrake();
+  private breakHold = 0; // seconds W has been held while captured (rail breakaway)
   private preBrakeOrient: Vec3 | null = null; // orientation to restore if the brake is released early
   private lsGraceUntil = -1; // perfect release: lightspeed skips the charge until this time
   private gravityRings!: { update(fo: FloatingOrigin, capturedName: string | null, t: number): void };
@@ -212,6 +214,24 @@ export class Game {
       const body = findBody(this.bodies, this.sling.bodyName);
       const held = this.input.isActive("slingHold");
 
+      // The engine always wins: sustained W powers the ship off the rail,
+      // nose out, so "hold W" is never a dead input while tethered.
+      const bk = stepBreakaway(this.breakHold, this.input.isActive("throttleUp"), dt);
+      this.breakHold = bk.hold;
+      if (bk.free) {
+        this.sling = {
+          kind: "released",
+          bodyName: this.sling.bodyName,
+          cooldown: DEFAULT_SLING_PARAMS.cooldown,
+        };
+        this.setOrient(this.ship.position.sub(body.position).normalize());
+        this.ship.throttle = 1; // W is already held — respond instantly
+        this.angular = zeroAngular();
+        this.breakHold = 0;
+        this.slingHeldPrev = false;
+        return;
+      }
+
       if (this.assistOn) {
         // Tap-to-land while captured: the ring "absorbs" the swing momentum and
         // drops the ship gently — capped so the assist can always arrest it.
@@ -322,9 +342,9 @@ export class Game {
       const camRight = new Vec3(right3.x, right3.y, right3.z);
       const navDir = this.navTargetDirection();
       for (const body of this.bodies) {
-        // Radial entries (e.g. straight up off the pad) need a fallback swing
-        // plane: build it to CONTAIN the nav target, so a release can always
-        // line up with where the player wants to go.
+        // Dead-radial entries (falling straight at the body) need a fallback
+        // swing plane: build it to CONTAIN the nav target, so a release can
+        // always line up with where the player wants to go.
         let fallback = camRight;
         if (navDir) {
           const rHat = this.ship.position.sub(body.position).normalize();
@@ -618,7 +638,7 @@ export class Game {
       }
       return this.input.isActive("slingHold")
         ? "release SPACE to fling · or J to jump now"
-        : "hold SPACE to swing · J lightspeed · L land";
+        : "hold SPACE to swing · hold W to fly free · J lightspeed · L land";
     }
     if (this.cruising) return "J to drop out early";
     if (this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst") return null;
@@ -668,6 +688,7 @@ export class Game {
     this.angular = zeroAngular();
     this.brake = idleBrake();
     this.preBrakeOrient = null;
+    this.breakHold = 0;
     this.phase = initialPhase();
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };

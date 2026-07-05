@@ -83,6 +83,9 @@ export function tryCapture(
   if (!body.landable) return state; // the Sun repels instead
   const speed = vel.length();
   if (speed < p.vCaptureMin) return state;
+  // Only inbound flight hooks: a ship climbing away from the body (launching,
+  // or thrusting free) must never be yanked back onto the rail.
+  if (vel.dot(pos.sub(body.position)) > 0) return state;
   const crosses =
     distanceToSegment(body.position, pos, pos.add(vel.scale(dt))) <= body.captureRadius;
   if (!crosses) return state;

@@ -59,6 +59,19 @@ describe("tryCapture", () => {
     expect(s.kind).toBe("captured");
   });
 
+  it("never captures a ship climbing away from the body (launch)", () => {
+    // Launching: inside the bubble, moving radially outward at capture speed.
+    const pos = mars.position.add(new Vec3(mars.radius * 2, 0, 0));
+    const vel = new Vec3(4000, 0, 0);
+    expect(tryCapture(idleSling(), pos, vel, mars, fallback, DT, P).kind).toBe("none");
+  });
+
+  it("still captures a tangential graze (slingshot entry)", () => {
+    const pos = mars.position.add(new Vec3(mars.captureRadius - 1, 0, 0));
+    const vel = new Vec3(0, 0, 4000); // exactly tangential, no outward motion
+    expect(tryCapture(idleSling(), pos, vel, mars, fallback, DT, P).kind).toBe("captured");
+  });
+
   it("never captures at the Sun", () => {
     const pos = sun.position.add(new Vec3(sun.captureRadius - 1, 0, 0));
     const vel = new Vec3(-4000, 0, 0);
@@ -229,15 +242,15 @@ describe("tickSling", () => {
   });
 });
 
-describe("launch capture (radial entry with a nav-target fallback plane)", () => {
-  it("a straight-up launch captured with a target-perpendicular fallback can always align", () => {
-    // Ship climbing radially out of Mars (stand-in for any home planet), with
-    // the fallback tangent built from the direction to a nav target — the way
-    // Game constructs it. The swing plane then CONTAINS the target direction,
-    // so the release tangent must sweep within the snap cone inside one lap.
+describe("dead-fall capture (radial entry with a nav-target fallback plane)", () => {
+  it("a straight-down fall captured with a target-perpendicular fallback can always align", () => {
+    // Ship falling radially at Mars, with the fallback tangent built from the
+    // direction to a nav target — the way Game constructs it. The swing plane
+    // then CONTAINS the target direction, so the release tangent must sweep
+    // within the snap cone inside one lap.
     const up = new Vec3(1, 0, 0);
     const pos = mars.position.add(up.scale(mars.captureRadius - 1));
-    const vel = up.scale(400); // radial climb — degenerate without the fallback
+    const vel = up.scale(-400); // dead fall — degenerate without the fallback
     const toTarget = new Vec3(0.3, 0, 0.954).normalize(); // some other planet
     const rHat = up;
     const fallbackTangent = toTarget.sub(rHat.scale(toTarget.dot(rHat))).normalize();
@@ -266,16 +279,16 @@ describe("chained arrival (lightspeed handoff invariant)", () => {
 });
 
 describe("alignSwingPlane (tilted-entry orbit trap)", () => {
-  // A launch a few degrees off radial is NOT degenerate (no fallback plane),
+  // An entry a few degrees off radial is NOT degenerate (no fallback plane),
   // but its entry plane misses most targets — the tangent can then never
   // sweep inside the snap cone and the ship circles forever. alignSwingPlane
   // tips the plane about the current radius until it contains the target.
   const up = new Vec3(1, 0, 0);
   const toTarget = new Vec3(0.3, 0, 0.954).normalize(); // in the x/z ecliptic
-  // 8° off-radial climb, drifting out of the ecliptic (+y) — the trap case.
+  // 8° off-radial dive into the bubble, drifting out of the ecliptic (+y).
   function tiltedCapture(): Extract<SlingState, { kind: "captured" }> {
     const pos = mars.position.add(up.scale(mars.captureRadius - 1));
-    const vel = new Vec3(Math.cos(0.14), Math.sin(0.14), 0).scale(400);
+    const vel = new Vec3(-Math.cos(0.14), Math.sin(0.14), 0).scale(400);
     const s = tryCapture(idleSling(), pos, vel, mars, fallback, DT, P);
     expect(s.kind).toBe("captured");
     return s as Extract<SlingState, { kind: "captured" }>;
