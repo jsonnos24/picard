@@ -41,6 +41,7 @@ import { stepBreakaway } from "./breakaway";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { jumpDecision, lightspeedTap } from "./jump";
 import { evaluateTouchdown } from "./landing";
+import { padReset } from "./padReset";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
@@ -695,6 +696,13 @@ export class Game {
     this.missionElapsed = 0;
     this.tc = { ...this.tc, timeScale: 1 };
     this.assistOn = false;
+    const r = padReset();
+    this.sling = r.sling;
+    this.slingHeldPrev = r.slingHeldPrev;
+    this.cruising = r.cruising;
+    this.lsTargetName = r.lsTargetName;
+    this.lsBraking = r.lsBraking;
+    this.lsSeq = r.lsSeq;
   }
 
   // Swinging in the ring of the body the player navigated to — arrival. The
