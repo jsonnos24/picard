@@ -8,6 +8,16 @@
 
 export type JumpDecision = "none" | "jump" | "lightspeed" | "land";
 
+// J is a toggle that answers on every tap: start a jump, abort the wind-up,
+// or drop out of the cruise — never a dead key waiting for a cinematic.
+export type LsTap = "start" | "abort" | "dropout";
+
+export function lightspeedTap(cruising: boolean, seqPhase: string): LsTap {
+  if (cruising) return "dropout";
+  if (seqPhase === "charge" || seqPhase === "burst") return "abort";
+  return "start"; // idle or settle — free to (re-)engage
+}
+
 export interface JumpContext {
   capturedBody: string | null; // body whose ring holds the ship, if captured
   targetName: string | null;

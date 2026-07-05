@@ -39,7 +39,7 @@ import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { BrakeState, idleBrake, stepBrake } from "./retroBrake";
 import { stepBreakaway } from "./breakaway";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
-import { jumpDecision } from "./jump";
+import { jumpDecision, lightspeedTap } from "./jump";
 import { evaluateTouchdown } from "./landing";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
@@ -711,7 +711,8 @@ export class Game {
   }
 
   private toggleLightspeed(): void {
-    if (this.cruising) {
+    const tap = lightspeedTap(this.cruising, this.lsSeq.phase);
+    if (tap === "dropout") {
       // Cancel: wind the cinematics down and bleed speed off.
       this.cruising = false;
       this.lsTargetName = null;
@@ -719,7 +720,12 @@ export class Game {
       this.lsSeq = endCruise(this.lsSeq);
       return;
     }
-    if (this.lsSeq.phase !== "idle") return; // already charging
+    if (tap === "abort") {
+      // Second tap mid-wind-up: never happened.
+      this.lsSeq = endCruise(this.lsSeq);
+      this.lsTargetName = null;
+      return;
+    }
     // Decide before touching anything: the old fling-first-validate-after
     // order bounced arrivals in an endless fling/cruise-back loop.
     const name = this.navmap.targetName;

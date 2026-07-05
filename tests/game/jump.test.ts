@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { jumpDecision, JumpContext } from "../../src/game/jump";
+import { jumpDecision, lightspeedTap, JumpContext } from "../../src/game/jump";
 
 function ctx(over: Partial<JumpContext> = {}): JumpContext {
   return {
@@ -11,6 +11,29 @@ function ctx(over: Partial<JumpContext> = {}): JumpContext {
     ...over,
   };
 }
+
+describe("lightspeedTap — J toggles in and out at any moment", () => {
+  it("starts a jump from idle", () => {
+    expect(lightspeedTap(false, "idle")).toBe("start");
+  });
+
+  it("aborts the jump mid-charge", () => {
+    expect(lightspeedTap(false, "charge")).toBe("abort");
+  });
+
+  it("aborts on the burst edge before cruise motion begins", () => {
+    expect(lightspeedTap(false, "burst")).toBe("abort");
+  });
+
+  it("drops out of a running cruise", () => {
+    expect(lightspeedTap(true, "cruise")).toBe("dropout");
+    expect(lightspeedTap(true, "burst")).toBe("dropout");
+  });
+
+  it("can jump straight back in during the settle", () => {
+    expect(lightspeedTap(false, "settle")).toBe("start");
+  });
+});
 
 describe("jumpDecision — what J does", () => {
   it("lightspeeds toward a reachable target from free flight", () => {
