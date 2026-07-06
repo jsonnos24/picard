@@ -98,8 +98,12 @@ export class CameraRig {
       ? smoothToward(this.chaseLook, frame.lookAt, 10, dt)
       : frame.lookAt;
     this.camera.position.set(this.chasePos.x, this.chasePos.y, this.chasePos.z);
-    // Near the ground, planet-up keeps the horizon level; in space, ship-up.
-    if (ground && frame.groundness > 0) {
+    // While slung, the swing-plane normal keeps the orbit cam from rolling —
+    // ship-up spins with the rail tangent every lap. Near the ground,
+    // planet-up keeps the horizon level; in space, ship-up.
+    if (sling) {
+      this.camera.up.set(sling.normal.x, sling.normal.y, sling.normal.z);
+    } else if (ground && frame.groundness > 0) {
       const pu = new THREE.Vector3(ground.up.x, ground.up.y, ground.up.z);
       this.camera.up.copy(up3.lerp(pu, frame.groundness).normalize());
     } else {

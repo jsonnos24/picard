@@ -2,8 +2,9 @@
 import { Vec3 } from "../../sim/Vec3";
 
 // Pure framing math for the chase camera: sit behind and above the ship,
-// pull back with speed, and while slung bias out along the swing-plane normal
-// so planet, ship, and fling direction all read in one shot.
+// pull back with speed, and while slung switch to an orbit cam — camera on
+// the planet–ship line outside the ship, aim locked on the planet, so the
+// body you're circling stays dead-centre with the ship in the foreground.
 
 export interface ChaseParams {
   baseDist: number; // m behind the ship
@@ -11,8 +12,8 @@ export interface ChaseParams {
   height: number; // m above the ship (along ship-up)
   lookAhead: number; // m ahead of the ship to aim at
   vRef: number; // m/s at which the speed pull-back saturates
-  slingBias: number; // fraction of distance shifted along the swing normal
-  slingWiden: number; // extra pull-back while slung, × body radius
+  slingOrbitDist: number; // camera pull-back outside the ship, × body radius
+  slingOrbitLift: number; // lift above the swing plane for a 3/4 view, × body radius
   groundAltRef: number; // m — below this altitude, ground framing blends in
   groundMinUp: number; // m — camera stays at least this far above the ship near ground
   surfaceMargin: number; // m — hard floor: camera never dips inside surface+margin
@@ -26,8 +27,8 @@ export const DEFAULT_CHASE_PARAMS: ChaseParams = {
   height: 12,
   lookAhead: 20,
   vRef: 4_000,
-  slingBias: 0.6,
-  slingWiden: 0.35,
+  slingOrbitDist: 0.9,
+  slingOrbitLift: 0.3,
   groundAltRef: 120,
   groundMinUp: 10,
   surfaceMargin: 4,
@@ -71,13 +72,15 @@ export function chaseFrame(
   let lookAt = shipPos.add(fwd.scale(p.lookAhead));
 
   if (sling) {
-    dist += sling.bodyRadius * p.slingWiden;
+    // Orbit cam: planet dead-centre, ship in the foreground. The camera rides
+    // the planet–ship line outside the ship (so the ship is always between
+    // camera and planet) and lifts a little off the swing plane for depth.
+    const rel = shipPos.sub(sling.center);
+    const outward = rel.length() > 1e-6 ? rel.normalize() : up;
     camPos = shipPos
-      .sub(fwd.scale(dist))
-      .add(sling.normal.scale(dist * p.slingBias))
-      .add(up.scale(p.height));
-    // Aim between the ship and the planet so both stay framed.
-    lookAt = shipPos.add(sling.center.sub(shipPos).scale(0.25));
+      .add(outward.scale(p.baseDist + sling.bodyRadius * p.slingOrbitDist))
+      .add(sling.normal.scale(sling.bodyRadius * p.slingOrbitLift));
+    lookAt = sling.center;
   }
 
   let groundness = 0;

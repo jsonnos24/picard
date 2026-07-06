@@ -31,19 +31,38 @@ describe("chaseFrame", () => {
     expect(d(faster)).toBeCloseTo(d(fast), 6);
   });
 
-  it("biases out along the swing-plane normal while slung", () => {
+  it("orbit-cams while slung: planet dead-centre with the ship in frame", () => {
     const sling: SlingView = {
       center: shipPos.add(new Vec3(5000, 0, 0)),
       normal: new Vec3(0, 0, 1),
       bodyRadius: 2000,
     };
-    const plain = chaseFrame(shipPos, fwd, up, 4000, null, null, P);
-    const slung = chaseFrame(shipPos, fwd, up, 4000, sling, null, P);
-    const biasGain =
-      slung.camPos.sub(shipPos).dot(sling.normal) - plain.camPos.sub(shipPos).dot(sling.normal);
-    expect(biasGain).toBeGreaterThan(0);
-    // aim shifts toward the planet so both stay framed
-    expect(slung.lookAt.sub(shipPos).dot(new Vec3(1, 0, 0))).toBeGreaterThan(0);
+    const f = chaseFrame(shipPos, fwd, up, 4000, sling, null, P);
+    // The aim is locked on the planet — that's what keeps it centred on screen.
+    expect(f.lookAt.sub(sling.center).length()).toBeLessThan(1e-6);
+    // Camera sits on the far side of the ship from the planet…
+    const outward = shipPos.sub(sling.center).normalize();
+    expect(f.camPos.sub(shipPos).dot(outward)).toBeGreaterThan(0);
+    // …so the ship reads in the foreground: the view rays to ship and planet
+    // are nearly parallel.
+    const toShip = shipPos.sub(f.camPos).normalize();
+    const toPlanet = sling.center.sub(f.camPos).normalize();
+    expect(toShip.dot(toPlanet)).toBeGreaterThan(0.9);
+  });
+
+  it("orbit cam keeps the planet centred all the way around a swing lap", () => {
+    const center = new Vec3(0, 0, 0);
+    const normal = new Vec3(0, 0, 1);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const pos = new Vec3(Math.cos(a) * 9000, Math.sin(a) * 9000, 0);
+      const tangent = new Vec3(-Math.sin(a), Math.cos(a), 0); // nose on the rail
+      const f = chaseFrame(pos, tangent, normal, 3000, { center, normal, bodyRadius: 2000 }, null, P);
+      expect(f.lookAt.sub(center).length()).toBeLessThan(1e-6);
+      const toShip = pos.sub(f.camPos).normalize();
+      const toPlanet = center.sub(f.camPos).normalize();
+      expect(toShip.dot(toPlanet)).toBeGreaterThan(0.9);
+    }
   });
 
   it("produces finite output for any speed and degenerate sling normals", () => {
