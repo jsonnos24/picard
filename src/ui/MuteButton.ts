@@ -27,4 +27,15 @@ export class MuteButton {
     this.el.setAttribute("aria-label", this.muted ? "Unmute" : "Mute");
     this.el.setAttribute("aria-pressed", String(this.muted));
   }
+
+  // External sync (Task 11): the settings panel has its own MUTE control
+  // over the same underlying setting, so either affordance changing it must
+  // update the other's display too. Purely a view update — never calls
+  // onToggle, so main.ts (the single source of truth for `settings.muted`)
+  // never sees a feedback loop.
+  setMuted(muted: boolean): void {
+    if (this.muted === muted) return;
+    this.muted = muted;
+    this.render();
+  }
 }

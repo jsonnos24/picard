@@ -2,6 +2,7 @@ import { Game } from "./game/Game";
 import { loadSettings, serializeSettings, SETTINGS_KEY, Settings } from "./game/settings";
 import { MuteButton } from "./ui/MuteButton";
 import { Onboarding } from "./ui/Onboarding";
+import { SettingsPanel } from "./ui/SettingsPanel";
 import { GAME_NAME, TAGLINE } from "./branding";
 
 // index.html carries static duplicate text for pre-JS paint (title, splash
@@ -22,28 +23,82 @@ game.start();
 (window as unknown as { __game: Game }).__game = game;
 
 // Settings: load once at startup and apply to the audio director; persisted
-// back to localStorage whenever the player changes one (today: only the
-// mute button — sfxVolume/musicEnabled have no UI yet, pre-E1 scope).
+// back to localStorage immediately whenever the player changes one, from
+// either the mute button or the settings panel below.
 let settings: Settings = loadSettings(localStorage.getItem(SETTINGS_KEY));
 game.audio.setMuted(settings.muted);
 game.audio.setMusicEnabled(settings.musicEnabled);
 game.audio.setMasterVolume(settings.sfxVolume);
 game.setQualitySetting(settings.quality);
 
-new MuteButton(document.getElementById("ui")!, settings.muted, (muted) => {
+// Two affordances share one underlying `muted` value (the quick top-right
+// toggle, and the settings panel's own MUTE row) — each syncs the other's
+// display via its setMuted(), but only its own click ever calls back here,
+// so `settings.muted` (this module's single source of truth) never loops.
+const muteBtn = new MuteButton(document.getElementById("ui")!, settings.muted, (muted) => {
   settings = { ...settings, muted };
   game.audio.setMuted(muted);
   localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+  settingsPanel.setMuted(muted);
 });
 
 // First-run onboarding: shown once (never again once dismissed), after the
 // splash below has faded. Persists onboarded on dismissal — via GOT IT, or
-// the first meaningful game input the overlay itself detects.
+// the first meaningful game input the overlay itself detects. REPLAY
+// TUTORIAL (settings panel) re-arms it via onboarding.replay().
 game.setOnboarded(settings.onboarded);
 const onboarding = new Onboarding(document.getElementById("ui")!, () => {
   settings = { ...settings, onboarded: true };
   localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
   game.setOnboarded(true);
+});
+
+// Settings panel (Task 11): gear button + modal, wired straight to the same
+// `settings`/localStorage/game.audio/game.setQualitySetting glue as above.
+// onOpenChange feeds Game's shared pause gate (setSettingsOpen) — the panel
+// itself never touches sim/pause state directly.
+const settingsPanel = new SettingsPanel(document.getElementById("ui")!, settings, {
+  onOpenChange: (open) => game.setSettingsOpen(open),
+  onMutedChange: (muted) => {
+    settings = { ...settings, muted };
+    game.audio.setMuted(muted);
+    localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+    muteBtn.setMuted(muted);
+  },
+  onMusicChange: (musicEnabled) => {
+    settings = { ...settings, musicEnabled };
+    game.audio.setMusicEnabled(musicEnabled);
+    localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+  },
+  onVolumeChange: (sfxVolume) => {
+    settings = { ...settings, sfxVolume };
+    game.audio.setMasterVolume(sfxVolume);
+    localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+  },
+  onQualityChange: (quality) => {
+    settings = { ...settings, quality };
+    game.setQualitySetting(quality);
+    localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+  },
+  onResetToPad: () => game.resetToPad(),
+  onReplayTutorial: () => {
+    settings = { ...settings, onboarded: false };
+    localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
+    game.setOnboarded(false);
+    onboarding.replay();
+  },
+});
+
+// Esc single-owner (Task 11): exactly one keydown listener decides what Esc
+// does, replacing NavMap's own former Esc listener (E2). Priority: the
+// settings panel closes first if it's open (it was opened by an explicit
+// gear click, so Esc should always back out of it first); otherwise the nav
+// map closes if it's open; otherwise Esc opens the settings panel.
+window.addEventListener("keydown", (e) => {
+  if (e.code !== "Escape") return;
+  if (settingsPanel.isOpen) settingsPanel.close();
+  else if (game.navmap.isOpen) game.navmap.close();
+  else settingsPanel.open();
 });
 
 // Backgrounding: suspend/resume the audio context with the tab's visibility

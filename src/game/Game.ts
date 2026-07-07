@@ -108,7 +108,18 @@ export class Game {
   private missionElapsed = 0; // simulated seconds since leaving the Earth pad
   private assistOn = false; // landing assist: auto-orient upright + descent-rate limiter
   private hud!: HUD;
-  private navmap!: NavMap;
+  // Public (Task 11): main.ts's single-owner Esc router and the settings
+  // panel wiring both need to read/close the nav map, the same way they
+  // already read/drive the settings panel — NavMap's own isOpen/close() were
+  // already a public, single-path API, so exposing the field is the whole
+  // change.
+  navmap!: NavMap;
+  // Shared pause gate (Task 11): set by main.ts's SettingsPanel via
+  // setSettingsOpen() whenever the settings panel opens/closes. Combined
+  // with navmap.isOpen in the uiPaused getter below — the ONE place both the
+  // accumulator-drain branch in frame() and the snapshot's `paused` field
+  // read from. Do not add a second pause mechanism.
+  private settingsOpen = false;
   private warpFx!: { update(cameraPos: THREE.Vector3, tunnel: number, flash: number): void };
   private lsSeq: LsSeq = idleSeq();
   private lsTargetName: string | null = null; // pending (charging) or active cruise target
@@ -234,6 +245,24 @@ export class Game {
   // thumbstick's idle hint ring (TouchControls.setOnboarded).
   setOnboarded(onboarded: boolean): void {
     this.touch.setOnboarded(onboarded);
+  }
+
+  // Called by main.ts whenever its SettingsPanel opens or closes. The only
+  // writer of `settingsOpen` — kept a plain setter (not routed through
+  // input/InputManager) since the panel's own gear-button/Esc affordances
+  // own the open/close decision, same division of labor as NavMap.toggle()
+  // owning navmap.isOpen.
+  setSettingsOpen(open: boolean): void {
+    this.settingsOpen = open;
+  }
+
+  // Shared pause gate (Task 11): anything that should freeze sim time —
+  // today the nav map or the settings panel — ORs in here. frame()'s
+  // accumulator-drain branch and buildSnapshot's `paused` input both read
+  // this one flag, so there is exactly one place "is the game paused" is
+  // decided.
+  get uiPaused(): boolean {
+    return this.navmap.isOpen || this.settingsOpen;
   }
 
   private applyQualityResolve(benchFrameMs?: number): void {
@@ -644,8 +673,9 @@ export class Game {
       this.rig.resetLook();
     }
     this.dust.update(dt);
-    if (this.navmap.isOpen) {
-      // Drain the accumulator without stepping — map open pauses the sim.
+    if (this.uiPaused) {
+      // Drain the accumulator without stepping — nav map or settings panel
+      // open pauses the sim (shared gate, Task 11).
       this.tc = advance(this.tc, Math.min(dt, 0.1)).next;
     } else {
       const { steps, next } = advance(this.tc, Math.min(dt, 0.1));
@@ -678,6 +708,7 @@ export class Game {
       breakawayHold: this.breakHold,
       assistOn: this.assistOn,
       navMapOpen: this.navmap.isOpen,
+      paused: this.uiPaused,
       missionElapsed: this.missionElapsed,
       cues: this.pendingCues,
     });
@@ -1027,7 +1058,10 @@ export class Game {
     this.ship.velocity = Vec3.zero();
   }
 
-  private resetToPad(): void {
+  // Public (Task 11): the settings panel's RESET TO PAD button calls this
+  // directly via main.ts, same trigger path as the automatic crash-recovery
+  // call site below.
+  resetToPad(): void {
     const earth = findBody(this.bodies, "Earth");
     this.ship = createSpacecraft(
       earth.position.add(new Vec3(0, earth.radius + this.padHeight, 0)),

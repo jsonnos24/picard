@@ -71,6 +71,18 @@ export class Onboarding {
     this.onDismiss();
   }
 
+  // REPLAY TUTORIAL (Task 11, settings panel): re-arms the overlay exactly
+  // as if it had never been dismissed — clears `dismissed`, reinstalls the
+  // same dismiss listeners removed above, and reveals. onDismiss fires again
+  // on the next dismissal, which is fine: main.ts's handler just persists
+  // onboarded=true again, a no-op if it's already true.
+  replay(): void {
+    this.dismissed = false;
+    window.addEventListener("keydown", this.handleKey, true);
+    window.addEventListener("pointerdown", this.handlePointer, true);
+    this.reveal();
+  }
+
   private coarseMarkup(): string {
     return (
       `<div class="onb-panel onb-left"><div class="onb-ring"></div>` +

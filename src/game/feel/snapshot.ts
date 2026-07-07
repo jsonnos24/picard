@@ -41,6 +41,11 @@ export interface FrameSnapshot {
   breakaway: boolean;
   assistOn: boolean;
   navMapOpen: boolean;
+  // Shared UI-pause gate (Task 11): true while the nav map OR the settings
+  // panel is open. Game computes this once (its `uiPaused` getter) and feeds
+  // it straight through here — this field is never re-derived from
+  // navMapOpen internally, so there is exactly one place "is the sim paused"
+  // is decided.
   paused: boolean;
   missionElapsed: number;
   // one-shot: this frame is a natural lightspeed arrival (set at the r.done
@@ -94,6 +99,9 @@ export interface SnapshotInputs {
   breakawayHold: number; // seconds W has been held while captured (0 = not attempting)
   assistOn: boolean;
   navMapOpen: boolean;
+  // Game's shared uiPaused gate (navmap.isOpen || settings.isOpen) — see the
+  // FrameSnapshot.paused doc comment above.
+  paused: boolean;
   missionElapsed: number;
   cues: SnapshotCues;
 }
@@ -127,7 +135,7 @@ export function buildSnapshot(inputs: SnapshotInputs): FrameSnapshot {
     breakaway: inputs.breakawayHold > 0,
     assistOn: inputs.assistOn,
     navMapOpen: inputs.navMapOpen,
-    paused: inputs.navMapOpen, // the only thing that pauses the sim today
+    paused: inputs.paused,
     missionElapsed: inputs.missionElapsed,
   };
 }
@@ -152,6 +160,7 @@ export function idleSnapshot(): FrameSnapshot {
     breakawayHold: 0,
     assistOn: false,
     navMapOpen: false,
+    paused: false,
     missionElapsed: 0,
     cues: idleCues(),
   });

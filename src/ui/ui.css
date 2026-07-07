@@ -80,6 +80,108 @@
 #mutebtn:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
 #mutebtn:active { transform: scale(0.94); }
 
+/* ---- Settings gear button (Task 11) ---- */
+/* Sits left of #mutebtn on the same top row — 44px mutebtn + 8px gap puts
+   this button's right edge at 68px from the safe-area edge. 48px (not 44px)
+   to meet this task's own ≥48px touch-target bar. */
+#settingsbtn {
+  position: absolute; top: calc(14px + env(safe-area-inset-top)); right: calc(68px + env(safe-area-inset-right));
+  pointer-events: auto; z-index: 30;
+  width: 48px; height: 48px; font-size: 20px; line-height: 1;
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  color: var(--accent); cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#settingsbtn:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
+#settingsbtn:active { transform: scale(0.94); }
+
+/* ---- Settings panel (Task 11) ---- */
+/* Same backdrop+.panel idiom as #navmap: a full-screen click-to-close
+   backdrop with the actual card centred inside it. */
+#settingspanel {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45);
+  pointer-events: none; display: none; z-index: 21; /* just above #navmap */
+}
+#settingspanel.open { display: block; pointer-events: auto; }
+#settingspanel .panel {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(90vw, 420px); max-height: min(85vh, 560px); overflow-y: auto;
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  padding: 44px 16px 16px;
+}
+#settingspanel .title {
+  position: absolute; top: 8px; left: 16px; color: var(--accent);
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase;
+}
+#settingspanel .close {
+  position: absolute; top: 6px; right: 6px; width: 48px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  font: 800 20px/1 var(--font-display); color: var(--accent);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  cursor: pointer; z-index: 1;
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#settingspanel .close:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
+#settingspanel .close:active { transform: scale(0.94); }
+#settingspanel .paused {
+  position: absolute; top: 12px; right: 56px;
+  font: 800 10px/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent); border: 1.5px solid var(--accent-border); border-radius: 999px;
+  padding: 4px 10px; pointer-events: none;
+}
+#settingspanel .rows { display: flex; flex-direction: column; gap: 14px; }
+#settingspanel .row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 48px;
+}
+#settingspanel .row .label {
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent);
+}
+#settingspanel .toggle {
+  min-width: 84px; min-height: 48px; padding: 0 14px;
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink); background: var(--accent); border: 1.5px solid var(--accent); border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#settingspanel .toggle:hover { background: var(--accent-dim); }
+#settingspanel .toggle:active { transform: scale(0.96); }
+#settingspanel .toggle.off {
+  color: var(--accent); background: transparent; border-color: var(--accent-border);
+}
+#settingspanel .volume {
+  flex: 1 1 auto; min-width: 0; height: 48px; accent-color: var(--accent); cursor: pointer;
+}
+#settingspanel .quality {
+  min-height: 48px; min-width: 96px; padding: 0 10px;
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--accent); background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  cursor: pointer;
+}
+#settingspanel .actions {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 20px;
+  padding-top: 16px; border-top: 1.5px solid var(--accent-border);
+}
+#settingspanel .reset,
+#settingspanel .replay {
+  min-height: 48px; padding: 0 14px;
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
+  border-radius: var(--radius); cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#settingspanel .reset {
+  color: var(--danger); background: transparent; border: 1.5px solid var(--danger);
+}
+#settingspanel .reset:hover { background: rgba(224, 74, 63, 0.12); }
+#settingspanel .reset:active { transform: scale(0.97); }
+#settingspanel .reset.armed { color: var(--ink); background: var(--danger); }
+#settingspanel .replay {
+  color: var(--accent); background: transparent; border: 1.5px solid var(--accent-border);
+}
+#settingspanel .replay:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
+#settingspanel .replay:active { transform: scale(0.97); }
+
 /* ---- Controls legend ---- */
 #controls {
   position: absolute; top: calc(68px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right));
@@ -325,6 +427,11 @@
   #controls,
   #controls.hidden,
   #mutebtn,
+  #settingsbtn,
+  #settingspanel .close,
+  #settingspanel .toggle,
+  #settingspanel .reset,
+  #settingspanel .replay,
   #touchcontrols .tbtn,
   #navmap .info,
   #navmap .info.hidden,

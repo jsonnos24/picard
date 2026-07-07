@@ -83,13 +83,6 @@ export class NavMap {
     this.el.appendChild(this.panel);
     root.appendChild(this.el);
     this.ctx = this.canvas.getContext("2d")!;
-
-    // Esc closes the map when it's open, otherwise does nothing — a single
-    // obvious close-map hook (this.close()) a later settings-panel-priority
-    // handler (Task 11) can compose with.
-    window.addEventListener("keydown", (e) => {
-      if (e.code === "Escape" && this.open) this.close();
-    });
   }
 
   // Match the backing store to the CSS size × DPR so the map stays sharp on
@@ -128,9 +121,10 @@ export class NavMap {
     this.renderInfo();
   }
 
-  // Single close path — every affordance (× button, Esc, backdrop click, and
-  // the M toggle above) calls this, so Game's open-state logic
-  // (this.navmap.isOpen) stays single-path no matter what closed it.
+  // Single close path — every affordance (× button, backdrop click, the M
+  // toggle above, and main.ts's single-owner Esc router — Task 11) calls
+  // this, so Game's open-state logic (this.navmap.isOpen) stays single-path
+  // no matter what closed it.
   close(): void {
     if (!this.open) return;
     this.open = false;

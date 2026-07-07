@@ -27,6 +27,7 @@ const base: SnapshotInputs = {
   breakawayHold: 0,
   assistOn: false,
   navMapOpen: false,
+  paused: false,
   missionElapsed: 42,
   cues: idleCues(),
 };
@@ -90,9 +91,12 @@ describe("buildSnapshot", () => {
     expect(buildSnapshot({ ...base, breakawayHold: 0.3 }).breakaway).toBe(true);
   });
 
-  it("paused mirrors navMapOpen (the only thing that pauses the sim today)", () => {
-    expect(buildSnapshot({ ...base, navMapOpen: false }).paused).toBe(false);
-    expect(buildSnapshot({ ...base, navMapOpen: true }).paused).toBe(true);
+  it("paused passes through Game's shared uiPaused gate verbatim, independent of navMapOpen", () => {
+    expect(buildSnapshot({ ...base, navMapOpen: false, paused: false }).paused).toBe(false);
+    expect(buildSnapshot({ ...base, navMapOpen: true, paused: true }).paused).toBe(true);
+    // Task 11: the settings panel also pauses — navMapOpen can be false while
+    // paused is true (settings open, nav map closed).
+    expect(buildSnapshot({ ...base, navMapOpen: false, paused: true }).paused).toBe(true);
   });
 
   it("passes ringCapturedName through untouched", () => {
