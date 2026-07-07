@@ -86,9 +86,9 @@ export class Onboarding {
   private coarseMarkup(): string {
     return (
       `<div class="onb-panel onb-left"><div class="onb-ring"></div>` +
-      `<p class="onb-label">DRAG TO STEER</p></div>` +
-      `<div class="onb-panel onb-right"><p class="onb-label">ACTIONS</p>` +
-      `<p class="onb-sub">THIS BUTTON DOES<br/>THE NEXT RIGHT THING</p></div>` +
+      `<p class="onb-label">LEFT — DRAG TO STEER</p></div>` +
+      `<div class="onb-panel onb-right"><p class="onb-label">RIGHT — DRAG TO LOOK</p>` +
+      `<p class="onb-sub">THE BIG BUTTON DOES<br/>THE NEXT RIGHT THING</p></div>` +
       `<button type="button" class="onb-gotit">GOT IT</button>`
     );
   }

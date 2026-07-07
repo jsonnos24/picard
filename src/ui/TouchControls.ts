@@ -40,6 +40,11 @@ export class TouchControls {
   constructor(
     root: HTMLElement,
     private readonly input: InputManager,
+    // Camera free-look, same pathway as pointer-lock mouse movement on
+    // desktop (CameraRig.addLook via Game). Touch had no look path at all:
+    // the right half of the screen now drags the camera, mirroring the
+    // standard mobile split (left thumb moves, right thumb looks).
+    private readonly onLook?: (dx: number, dy: number) => void,
   ) {
     this.el = document.createElement("div");
     this.el.id = "touchcontrols";
@@ -47,6 +52,34 @@ export class TouchControls {
     const steer = document.createElement("div");
     steer.className = "steerzone";
     this.el.appendChild(steer);
+
+    const look = document.createElement("div");
+    look.className = "lookzone";
+    this.el.appendChild(look);
+    let lookId: number | null = null;
+    let lookLast: { x: number; y: number } | null = null;
+    look.addEventListener("pointerdown", (e) => {
+      if (lookId !== null) return;
+      lookId = e.pointerId;
+      lookLast = { x: e.clientX, y: e.clientY };
+      try {
+        look.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is best-effort, same as the steer zone */
+      }
+    });
+    look.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== lookId || !lookLast) return;
+      this.onLook?.(e.clientX - lookLast.x, e.clientY - lookLast.y);
+      lookLast = { x: e.clientX, y: e.clientY };
+    });
+    const endLook = (e: PointerEvent) => {
+      if (e.pointerId !== lookId) return;
+      lookId = null;
+      lookLast = null;
+    };
+    look.addEventListener("pointerup", endLook);
+    look.addEventListener("pointercancel", endLook);
 
     // Idle affordance shown at a fixed resting spot until the player's first
     // steer touch this session (and only pre-onboarding — see setOnboarded).

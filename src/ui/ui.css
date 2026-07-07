@@ -284,7 +284,10 @@
   #controls { display: none; }
   #hud { font-size: 12px; padding: 8px 12px; line-height: 1.45; }
 }
-#touchcontrols .steerzone { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+/* Left thumb steers/walks, right thumb looks — the standard mobile split.
+   The button cluster sits above both zones (higher z-index). */
+#touchcontrols .steerzone { position: absolute; top: 0; bottom: 0; left: 0; right: 50%; pointer-events: auto; touch-action: none; }
+#touchcontrols .lookzone { position: absolute; top: 0; bottom: 0; left: 50%; right: 0; pointer-events: auto; touch-action: none; }
 
 /* Visible thumbstick: base ring pinned to the touch-down anchor, nub tracks
    the clamped deflection via transform (set directly in the pointermove

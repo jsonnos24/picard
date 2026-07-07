@@ -232,7 +232,10 @@ export class Game {
     this.hud = new HUD(document.getElementById("ui")!);
     new Controls(document.getElementById("ui")!);
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies, () => this.audio.uiClick());
-    this.touch = new TouchControls(document.getElementById("ui")!, this.input);
+    this.touch = new TouchControls(document.getElementById("ui")!, this.input, (dx, dy) =>
+      // ~1.6× the mouse feel: thumbs travel less than a mouse hand.
+      this.rig.addLook(dx * 1.6, dy * 1.6),
+    );
     this.chip = new ContextChip(document.getElementById("ui")!);
     this.warpFx = createWarpEffect(this.renderer.scene);
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;

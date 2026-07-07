@@ -121,6 +121,10 @@ export class CameraRig {
       this.camera.up.copy(up3);
     }
     this.camera.lookAt(this.chaseLook.x, this.chaseLook.y, this.chaseLook.z);
+    // Free-look glances around from the chase shot (mouse under pointer
+    // lock, or the touch look zone) — applied after lookAt so it's an
+    // offset on the framed shot, same as cockpit/onFoot.
+    this.applyLook(this.camera);
     // Camera-local judder, same translate-after-look pattern as setCockpit —
     // nudges position along the just-computed orientation's own axes so the
     // shake reads as a jitter on the shot rather than a fight with the smoothing.
