@@ -77,6 +77,10 @@ import {
   idleCues,
 } from "./feel/snapshot";
 import { SAFE_VSPEED } from "./landing";
+import { audioCues } from "./feel/audioCues";
+import { audioLevels } from "./feel/audioLevels";
+import { moodFromSnapshot } from "./feel/musicBed";
+import { AudioDirector } from "../audio/AudioDirector";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -129,6 +133,10 @@ export class Game {
   private pendingCues: SnapshotCues = idleCues();
   snapshot: FrameSnapshot = idleSnapshot();
   prevSnapshot: FrameSnapshot = idleSnapshot();
+  // Reachable via window.__game.audio — the verify skill reads
+  // audio.audioDebug() to assert cues fired, headless (context stays
+  // suspended there; every AudioDirector method no-ops safely for it).
+  readonly audio = new AudioDirector();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -580,6 +588,16 @@ export class Game {
       cues: this.pendingCues,
     });
     this.pendingCues = idleCues();
+
+    // Audio: pure edge-detect + level/mood mapping off the snapshot just
+    // built, handed to the one stateful director. Never throws/blocks even
+    // headless — see AudioDirector's own guards.
+    this.audio.frame(
+      audioCues(this.prevSnapshot, this.snapshot),
+      audioLevels(this.snapshot),
+      moodFromSnapshot(this.snapshot),
+      dt,
+    );
 
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
