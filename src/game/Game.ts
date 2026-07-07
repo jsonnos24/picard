@@ -692,9 +692,12 @@ export class Game {
     const aDec = Math.max(0.5, aMax - gLocal); // net deceleration available, engine up
     const distToGo = Math.max(0, pb.altitude - this.padHeight);
     let targetSpeed = Math.min(Math.sqrt(2 * aDec * distToGo) * 0.6, 400);
-    // Force a slow, gentle final approach so touchdown is well under the safe limit.
-    if (pb.altitude < 250) targetSpeed = Math.min(targetSpeed, 18);
-    if (pb.altitude < 60) targetSpeed = Math.min(targetSpeed, 4);
+    // Brisk approach, gentle only for the last moments — the long float-down
+    // made every landing feel like a wait (playtest feedback).
+    if (pb.altitude < 200) targetSpeed = Math.min(targetSpeed, 40);
+    if (pb.altitude < 50) targetSpeed = Math.min(targetSpeed, 12);
+    if (pb.altitude < 14) targetSpeed = Math.min(targetSpeed, 4);
+    if (pb.altitude < 6) targetSpeed = Math.min(targetSpeed, 2.4); // soft touchdown
     const targetVS = -Math.max(2, targetSpeed);
 
     // Desired acceleration: track the descent rate, null the drift, fight gravity.

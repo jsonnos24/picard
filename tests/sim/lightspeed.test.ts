@@ -199,9 +199,21 @@ describe("lightspeedStep — Sun obstacle (guided cruise must not tunnel through
     expect(r.vel.length()).toBeCloseTo(P.vArrive, 3);
   });
 
-  it("starts inside the bubble: drops immediately without moving", () => {
+  it("starts inside the bubble heading OUT: escapes freely (not blocked)", () => {
+    // Semantics changed with the escape rule: outbound rays from inside the
+    // bubble cruise normally — only rays diving deeper drop immediately.
+    // (Blocking escapes stranded ships inside the Sun's heat zone.)
     const start = new Vec3(50_000, 0, 0); // inside captureRadius (120_000)
-    const r = lightspeedStep(start, Vec3.zero(), beyondSun, NO_STEER, DT, P, obstacle);
+    const r = flyObstacle(start, beyondSun);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(false);
+    expect(r.pos.sub(beyondSun.position).length()).toBeCloseTo(beyondSun.captureRadius, 0);
+  });
+
+  it("starts inside the bubble heading DEEPER: drops immediately without moving", () => {
+    const start = new Vec3(50_000, 0, 0);
+    const inward: Body = { ...beyondSun, position: new Vec3(-500_000, 0, 0) };
+    const r = lightspeedStep(start, Vec3.zero(), inward, NO_STEER, DT, P, obstacle);
     expect(r.done).toBe(true);
     expect(r.blocked).toBe(true);
     expect(r.pos.sub(start).length()).toBeCloseTo(0, 6);
@@ -345,5 +357,46 @@ describe("freeCruiseStep — point-and-fly, no destination", () => {
     const r = freeCruiseStep(pos, vel, dir, { x: 1, y: 0 }, dt, []);
     expect(r.dir.dot(dir)).toBeLessThan(1 - 1e-6);
     expect(r.dir.length()).toBeCloseTo(1, 6);
+  });
+});
+
+describe("cruising out from inside an obstacle bubble", () => {
+  const sun = { position: new Vec3(0, 0, 0), bubbleRadius: 120_000 };
+  const NO_STEER2 = { x: 0, y: 0 };
+  const flyObs = (start: Vec3, target: { position: Vec3; captureRadius: number }) => {
+    let p = start.clone();
+    let v = Vec3.zero();
+    for (let i = 0; i < 120 * 60; i++) {
+      const r = lightspeedStep(p, v, target, NO_STEER2, 1 / 60, DEFAULT_LS_PARAMS, sun);
+      p = r.pos;
+      v = r.vel;
+      if (r.done) return { pos: p, vel: v, blocked: r.blocked ?? false, done: true };
+    }
+    return { pos: p, vel: v, blocked: false, done: false };
+  };
+
+  it("allows an outbound escape cruise started inside the bubble", () => {
+    // 80km from the Sun (inside the 120km bubble), target dead ahead outward:
+    // must fly the whole way and ARRIVE (not blocked).
+    const target = { position: new Vec3(1_000_000, 0, 0), captureRadius: 12_000 };
+    const r = flyObs(new Vec3(80_000, 0, 0), target);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(false);
+    expect(r.pos.sub(target.position).length()).toBeCloseTo(target.captureRadius, 0);
+  });
+
+  it("still drops immediately when heading deeper in", () => {
+    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000 };
+    const r = lightspeedStep(new Vec3(80_000, 0, 0), new Vec3(0, 0, 0), farTarget, NO_STEER2, 1 / 60, DEFAULT_LS_PARAMS, sun);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(true);
+  });
+
+  it("outside the bubble, a blocked chord still stops at the boundary", () => {
+    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000 };
+    const r = flyObs(new Vec3(500_000, 0, 0), farTarget);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(true);
+    expect(r.pos.sub(sun.position).length()).toBeGreaterThanOrEqual(sun.bubbleRadius - 1);
   });
 });

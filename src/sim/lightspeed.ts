@@ -62,7 +62,13 @@ function obstacleEntryDistance(
 ): number | null {
   const toObs = obstacle.position.sub(pos);
   const distC = toObs.length();
-  if (distC <= obstacle.bubbleRadius) return 0; // already inside — drop immediately
+  if (distC <= obstacle.bubbleRadius) {
+    // Already inside the bubble. Outbound rays (obstacle behind or abeam —
+    // every step increases our distance) are ESCAPES and must cruise freely:
+    // blocking them stranded ships crawling out of the Sun's 120km bubble on
+    // thrusters with the heat alarm blaring. Only rays diving deeper block.
+    return toObs.dot(dirTo) > 0 ? 0 : null;
+  }
   const proj = toObs.dot(dirTo);
   if (proj <= 0) return null; // obstacle is behind us
   const perp2 = distC * distC - proj * proj;
