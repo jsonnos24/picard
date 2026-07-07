@@ -795,7 +795,12 @@ export class Game {
     );
 
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
+    const prevOffset = this.fo.offset;
     this.fo = rebase(this.fo, focusPos);
+    if (this.fo.offset !== prevOffset) {
+      // Render space jumped — keep the camera rig's smoothed state in step.
+      this.rig.shiftWorld(this.fo.offset.sub(prevOffset));
+    }
     updateBodies(this.views, this.fo, dt, t / 1000, this.renderer.camera.position);
     this.gravityRings.update(
       this.fo,

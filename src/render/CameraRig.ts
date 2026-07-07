@@ -42,6 +42,16 @@ export class CameraRig {
     this.lookPitch = 0;
   }
 
+  // The floating origin rebases render space in discrete jumps (threshold
+  // 10 km). chasePos/chaseLook are smoothed RENDER-space positions, so each
+  // jump must shift them too — otherwise the camera is suddenly kilometers
+  // from the ship (often on the far side) and the shot flips ~180° once per
+  // rebase, every few frames at cruise speed.
+  shiftWorld(offsetDelta: Vec3): void {
+    if (this.chasePos) this.chasePos = this.chasePos.sub(offsetDelta);
+    if (this.chaseLook) this.chaseLook = this.chaseLook.sub(offsetDelta);
+  }
+
   applyLook(camera: THREE.PerspectiveCamera): void {
     camera.rotateY(this.lookYaw);
     camera.rotateX(this.lookPitch);
