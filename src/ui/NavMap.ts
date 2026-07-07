@@ -114,15 +114,23 @@ export class NavMap {
     this.target = name;
   }
 
+  // M toggles open/closed; the closing half of that routes through the exact
+  // same close() as the × button, Esc, and the backdrop click, so there's
+  // only ever one place that flips `open` off.
   toggle(): void {
-    this.open = !this.open;
-    this.el.classList.toggle("open", this.open);
-    if (this.open) this.renderInfo();
+    if (this.open) this.close();
+    else this.openMap();
   }
 
-  // Single close path — the × button, Esc, and the backdrop click all call
-  // this, so Game's open-state logic (this.navmap.isOpen) stays single-path
-  // no matter which affordance closed it.
+  private openMap(): void {
+    this.open = true;
+    this.el.classList.add("open");
+    this.renderInfo();
+  }
+
+  // Single close path — every affordance (× button, Esc, backdrop click, and
+  // the M toggle above) calls this, so Game's open-state logic
+  // (this.navmap.isOpen) stays single-path no matter what closed it.
   close(): void {
     if (!this.open) return;
     this.open = false;
