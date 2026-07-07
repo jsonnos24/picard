@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { fovForSpeed, FOV_BASE } from "../game/feel/fov";
-import { shakeOffset, gLeanOffset } from "../game/feel/shake";
+import { shakeOffset, gLeanOffset, Offset } from "../game/feel/shake";
 import { AngularState } from "../game/feel/turning";
 import { chaseFrame, smoothToward, SlingView, GroundView } from "../game/feel/chase";
 import { Vec3 } from "../sim/Vec3";
@@ -81,6 +81,7 @@ export class CameraRig {
     sling: SlingView | null,
     ground: GroundView | null,
     warpFovScale = 1,
+    shake: Offset | null = null,
   ): void {
     const fwd3 = new THREE.Vector3(0, 1, 0).applyQuaternion(shipQuat); // nose
     const up3 = new THREE.Vector3(0, 0, 1).applyQuaternion(shipQuat); // matches cockpit-up
@@ -110,6 +111,14 @@ export class CameraRig {
       this.camera.up.copy(up3);
     }
     this.camera.lookAt(this.chaseLook.x, this.chaseLook.y, this.chaseLook.z);
+    // Camera-local judder, same translate-after-look pattern as setCockpit —
+    // nudges position along the just-computed orientation's own axes so the
+    // shake reads as a jitter on the shot rather than a fight with the smoothing.
+    if (shake) {
+      this.camera.translateX(shake.x);
+      this.camera.translateY(shake.y);
+      this.camera.translateZ(shake.z);
+    }
     this.applyFov(speed, warpFovScale);
   }
 

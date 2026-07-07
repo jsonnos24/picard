@@ -19,6 +19,7 @@ let settings: Settings = loadSettings(localStorage.getItem(SETTINGS_KEY));
 game.audio.setMuted(settings.muted);
 game.audio.setMusicEnabled(settings.musicEnabled);
 game.audio.setMasterVolume(settings.sfxVolume);
+game.setQualitySetting(settings.quality);
 
 new MuteButton(document.getElementById("ui")!, settings.muted, (muted) => {
   settings = { ...settings, muted };

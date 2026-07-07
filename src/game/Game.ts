@@ -84,6 +84,9 @@ import { audioCues } from "./feel/audioCues";
 import { audioLevels } from "./feel/audioLevels";
 import { moodFromSnapshot } from "./feel/musicBed";
 import { AudioDirector } from "../audio/AudioDirector";
+import { chaseShake, idleImpulse, addImpulse, decayImpulse, ImpulseState } from "./feel/shake";
+import { resolveQualityTier, QualityTier } from "./feel/quality";
+import type { Quality } from "./settings";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -144,6 +147,19 @@ export class Game {
   // audio.audioDebug() to assert cues fired, headless (context stays
   // suspended there; every AudioDirector method no-ops safely for it).
   readonly audio = new AudioDirector();
+  // Chase-cam judder (Phase D2): decaying touchdown thump threaded frame to
+  // frame; the ramped/atmosphere/warp terms are stateless and read straight
+  // off this.snapshot each frame.
+  private chaseImpulse: ImpulseState = idleImpulse();
+  // Quality auto-resolve (Phase D2): settled at startup from dpr/pointer,
+  // then re-checked once after a short render bench — downgrade-only, so a
+  // slow first 60 frames can drop tier but a fast one never upgrades a
+  // player's explicit "low" choice mid-session.
+  private qualitySetting: Quality = "auto";
+  private currentTier: QualityTier = "high";
+  private benchFrameCount = 0;
+  private benchTotalMs = 0;
+  private benchResolved = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -188,6 +204,41 @@ export class Game {
         if (document.pointerLockElement) this.rig.addLook(e.movementX, e.movementY);
       });
     }
+
+    // Quality tier (Phase D2): resolve once now off dpr/pointer alone (no
+    // bench data yet — main.ts calls setQualitySetting once persisted
+    // settings load, which re-resolves against this same probe); a second,
+    // downgrade-only recheck happens after the first 60 rendered frames.
+    this.applyQualityResolve();
+  }
+
+  // Called by main.ts once persisted Settings have loaded (that happens
+  // after construction, same as the audio setters above it). Re-resolves
+  // immediately against the current dpr/pointer probe.
+  setQualitySetting(quality: Quality): void {
+    this.qualitySetting = quality;
+    this.benchResolved = false;
+    this.benchFrameCount = 0;
+    this.benchTotalMs = 0;
+    this.applyQualityResolve();
+  }
+
+  private applyQualityResolve(benchFrameMs?: number): void {
+    const tier = resolveQualityTier(this.qualitySetting, {
+      dpr: window.devicePixelRatio,
+      coarsePointer: window.matchMedia("(pointer: coarse)").matches,
+      benchFrameMs,
+    });
+    if (benchFrameMs !== undefined) {
+      // Bench recheck: downgrade-only — never claw back to "high" mid-session.
+      if (tier === "low" && this.currentTier === "high") {
+        this.currentTier = "low";
+        this.renderer.setQualityTier("low");
+      }
+      return;
+    }
+    this.currentTier = tier;
+    this.renderer.setQualityTier(tier);
   }
 
   private stepSim(): void {
@@ -547,6 +598,19 @@ export class Game {
   private frame = (t: number): void => {
     const dt = this.lastTime === 0 ? 0 : (t - this.lastTime) / 1000;
     this.lastTime = t;
+
+    // Quality bench (Phase D2): average real frame time over the first 60
+    // rendered frames (skipping the dt===0 first tick), then a one-shot
+    // downgrade-only recheck. Never re-armed except by setQualitySetting.
+    if (dt > 0 && !this.benchResolved) {
+      this.benchFrameCount++;
+      this.benchTotalMs += dt * 1000;
+      if (this.benchFrameCount >= 60) {
+        this.applyQualityResolve(this.benchTotalMs / this.benchFrameCount);
+        this.benchResolved = true;
+      }
+    }
+
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
     if (this.input.consumePressed("lightspeed")) this.toggleLightspeed();
     if (this.input.consumePressed("toggleExit")) this.toggleExit();
@@ -605,6 +669,14 @@ export class Game {
       cues: this.pendingCues,
     });
     this.pendingCues = idleCues();
+
+    // Chase-cam touchdown impulse (Phase D2): decay whatever's left from a
+    // previous hit, then add this frame's one-shot (soft/hard/crash read off
+    // the snapshot just built, so they're consumed exactly once each).
+    this.chaseImpulse = decayImpulse(this.chaseImpulse, dt);
+    if (this.snapshot.touchdownKind === "soft") this.chaseImpulse = addImpulse(this.chaseImpulse, 0.3);
+    else if (this.snapshot.touchdownKind === "hard") this.chaseImpulse = addImpulse(this.chaseImpulse, 0.7);
+    if (this.snapshot.crashed) this.chaseImpulse = addImpulse(this.chaseImpulse, 1.0);
 
     // Engine flame/trail kinematics (Phase D1): lag throttle asymmetrically,
     // add seeded flicker, and accumulate a whole-number trail emission count
@@ -702,6 +774,16 @@ export class Game {
         up: pb.up,
         altitude: pb.altitude,
       };
+      const chaseOffset = chaseShake(
+        {
+          throttle: this.snapshot.throttle,
+          atmosphereDensity: this.snapshot.atmosphereDensity,
+          speed: this.snapshot.speed,
+          flash: this.snapshot.flash,
+          touchdownImpulse: this.chaseImpulse.value,
+        },
+        t / 1000,
+      );
       this.rig.setChase(
         shipVec,
         this.quat,
@@ -710,6 +792,7 @@ export class Game {
         slingView,
         ground,
         this.lsFovScale,
+        chaseOffset,
       );
     } else {
       this.rig.setCockpit(

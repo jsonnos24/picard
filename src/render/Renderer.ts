@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import { createStarfield, Starfield } from "./scene/bodies";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 // Tone mapping: a single obvious constant so the controller can flip between
 // ACES / Neutral / revert after a visual checkpoint without hunting for it.
@@ -7,6 +11,15 @@ import { createStarfield, Starfield } from "./scene/bodies";
 // retune the palette to compensate.
 const TONE_MAPPING = THREE.ACESFilmicToneMapping;
 const TONE_MAPPING_EXPOSURE = 1.15;
+
+// Bloom spike (Phase D2): a subtle glow, not a full HDR bloom look — the Sun
+// sprite and warp flash/tunnel already carry the "glow" read from C1/C2, this
+// just lets bright fragments spill a little. Brief-specified constants.
+const BLOOM_STRENGTH = 0.55;
+const BLOOM_RADIUS = 0.4;
+const BLOOM_THRESHOLD = 0.85;
+
+export type QualityTier = "high" | "low";
 
 export class Renderer {
   readonly scene: THREE.Scene;
@@ -17,6 +30,16 @@ export class Renderer {
   // lower it.
   private dprCap = 2;
   private readonly starfield: Starfield;
+  // Composer chain: RenderPass → UnrealBloomPass → OutputPass. RenderPass and
+  // the bloom pass write into an offscreen target and so render fully linear,
+  // untouched by tone mapping/color-space encoding (Three only applies those
+  // when the bound render target is the screen); OutputPass is the one pass
+  // that targets the screen, and it's the sole place toneMapping/ACES gets
+  // applied — so "low" tier (gl.render straight to the canvas, no composer)
+  // and "high" tier with a dark/non-bloomed scene tone-map identically.
+  private readonly composer: EffectComposer;
+  private readonly bloomPass: UnrealBloomPass;
+  private tier: QualityTier = "high";
 
   constructor(canvas: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
@@ -28,6 +51,27 @@ export class Renderer {
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1e9);
     this.starfield = createStarfield();
     this.scene.add(this.starfield.group);
+
+    // Replacing direct-to-canvas with a composer target drops the implicit
+    // MSAA the canvas context's own antialias:true gave us — restored
+    // explicitly here via samples on the composer's render target.
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const renderTarget = new THREE.WebGLRenderTarget(w, h, {
+      samples: 4,
+      type: THREE.HalfFloatType,
+    });
+    this.composer = new EffectComposer(this.gl, renderTarget);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(w, h),
+      BLOOM_STRENGTH,
+      BLOOM_RADIUS,
+      BLOOM_THRESHOLD,
+    );
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
+
     this.resize();
   }
 
@@ -54,11 +98,25 @@ export class Renderer {
     this.gl.setSize(w, h);
     // Re-applied on every resize: some browsers report a changed DPR after a
     // window drags between displays, and setSize alone doesn't pick it up.
-    this.gl.setPixelRatio(Math.min(window.devicePixelRatio, this.dprCap));
+    const ratio = Math.min(window.devicePixelRatio, this.dprCap);
+    this.gl.setPixelRatio(ratio);
+    // Composer's own setSize multiplies by whatever pixel ratio it was last
+    // told about, so the ratio has to be re-applied here too (mirrors the
+    // renderer.setPixelRatio call directly above) before setSize scales it in.
+    this.composer.setPixelRatio(ratio);
+    this.composer.setSize(w, h);
     this.starfield.setDrawingBufferHeight(this.drawingBufferHeight());
   }
 
+  // Runtime switch (settings panel later): "high" runs the bloom composer,
+  // "low" renders straight to the canvas — no composer overhead at all, not
+  // just bloom disabled. Sun sprites already carry the glow look at low tier.
+  setQualityTier(tier: QualityTier): void {
+    this.tier = tier;
+  }
+
   render(): void {
-    this.gl.render(this.scene, this.camera);
+    if (this.tier === "high") this.composer.render();
+    else this.gl.render(this.scene, this.camera);
   }
 }
