@@ -46,6 +46,7 @@ import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
 import { TouchControls } from "../ui/TouchControls";
+import { ContextChip } from "../ui/ContextChip";
 import { contextAction } from "./contextAction";
 import {
   DEFAULT_LS_PARAMS,
@@ -127,6 +128,7 @@ export class Game {
   private gravityRings!: { update(fo: FloatingOrigin, capturedName: string | null, t: number): void };
   private readonly sun: Body;
   private touch!: TouchControls;
+  private chip!: ContextChip;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3, up?: THREE.Vector3, intensity?: number): void; update(dt: number): void };
@@ -188,6 +190,7 @@ export class Game {
     new Controls(document.getElementById("ui")!);
     this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
     this.touch = new TouchControls(document.getElementById("ui")!, this.input);
+    this.chip = new ContextChip(document.getElementById("ui")!);
     this.warpFx = createWarpEffect(this.renderer.scene);
     this.astronautGroup = createAstronaut3D(this.renderer.scene).group;
 
@@ -807,22 +810,24 @@ export class Game {
     }
 
     this.navmap.update(this.ship.position, this.ship.velocity);
+    const contextVerb = contextAction({
+      phaseKind: this.phase.kind,
+      slingCaptured: this.sling.kind === "captured",
+      capturedAtTarget: this.capturedAtTarget(),
+      cruising: this.cruising,
+      charging: this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst",
+      hasTarget: this.navmap.targetName !== null,
+      assistOn: this.assistOn,
+    });
     this.touch.update(
-      contextAction({
-        phaseKind: this.phase.kind,
-        slingCaptured: this.sling.kind === "captured",
-        capturedAtTarget: this.capturedAtTarget(),
-        cruising: this.cruising,
-        charging: this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst",
-        hasTarget: this.navmap.targetName !== null,
-        assistOn: this.assistOn,
-      }),
+      contextVerb,
       this.phase.kind === "onFoot",
       this.phase.kind === "landed",
       (this.phase.kind === "space" || this.phase.kind === "descending") &&
         !this.cruising &&
         this.sling.kind !== "captured",
     );
+    this.chip.update(contextVerb);
     this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
     const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
     const skim = skimIntensity(focusPrimary.altitude, focusVel.length());

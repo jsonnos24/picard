@@ -190,11 +190,32 @@
 #touchcontrols .tbtn.disabled { opacity: 0.5; }
 #touchcontrols .tbtn:active { background: rgba(255, 217, 138, 0.22); transform: scale(0.96); }
 
+/* ---- Desktop context chip: mirrors the touch context button in words, for
+   keyboard/mouse players. The big touch button already covers this on
+   coarse pointers, so it's hidden there. ---- */
+#contextchip {
+  position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  font: 800 13px/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); background: var(--ink-panel); border: 1.5px solid var(--accent-border);
+  border-radius: var(--radius); padding: 9px 18px; pointer-events: none; z-index: 15;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 1; transition: opacity var(--t-fast) var(--ease-out);
+}
+#contextchip.hidden { opacity: 0; }
+#contextchip.pulse { animation: chip-pulse 220ms var(--ease-out); }
+@keyframes chip-pulse {
+  0% { transform: translateX(-50%) scale(1.1); }
+  100% { transform: translateX(-50%) scale(1); }
+}
+@media (pointer: coarse) { #contextchip { display: none !important; } }
+
 @media (prefers-reduced-motion: reduce) {
   #hud .row.warn:not(.hidden),
   #ui .marker.pop {
     animation: none !important;
   }
+  #contextchip.pulse { animation: none !important; }
   #hud .row.status,
   #hud .row.status.hidden,
   #controls,
@@ -204,7 +225,8 @@
   #navmap .info,
   #navmap .info.hidden,
   #navmap .close,
-  #navmap .setcourse {
+  #navmap .setcourse,
+  #contextchip {
     transition-duration: 1ms !important;
   }
 }
