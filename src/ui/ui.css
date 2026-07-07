@@ -172,6 +172,44 @@
   #hud { font-size: 12px; padding: 8px 12px; line-height: 1.45; }
 }
 #touchcontrols .steerzone { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+
+/* Visible thumbstick: base ring pinned to the touch-down anchor, nub tracks
+   the clamped deflection via transform (set directly in the pointermove
+   handler — no rAF loop). pointer-events: none on both so they can never
+   steal the drag from .steerzone underneath. */
+#touchcontrols .stickbase {
+  position: absolute; left: 0; top: 0; width: 88px; height: 88px; margin: -44px 0 0 -44px;
+  border: 1.5px solid var(--accent-border); border-radius: 50%;
+  background: rgba(7, 11, 24, 0.4);
+  opacity: 0; pointer-events: none; z-index: 5;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+#touchcontrols .stickbase.show { opacity: 1; }
+#touchcontrols .sticknub {
+  position: absolute; left: 0; top: 0; width: 40px; height: 40px; margin: -20px 0 0 -20px;
+  border-radius: 50%; background: rgba(255, 217, 138, 0.7);
+  opacity: 0; pointer-events: none; z-index: 6;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+#touchcontrols .sticknub.show { opacity: 1; }
+
+/* Idle affordance: a faint pulsing ring at a fixed resting spot, shown only
+   pre-first-steer this session and only for a not-yet-onboarded player (see
+   TouchControls.setOnboarded). Purely decorative — never intercepts touch. */
+#touchcontrols .stickidle {
+  position: absolute; left: max(64px, 14vw); bottom: calc(160px + env(safe-area-inset-bottom));
+  width: 72px; height: 72px; margin-left: -36px;
+  border: 1.5px solid var(--accent-dim); border-radius: 50%;
+  opacity: 0.4; pointer-events: none; z-index: 4;
+}
+#touchcontrols .stickidle.hidden { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  #touchcontrols .stickidle { animation: stickidle-pulse 1.6s ease-in-out infinite; }
+}
+@keyframes stickidle-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.15); opacity: 0.65; }
+}
 #touchcontrols .cluster {
   position: absolute; right: calc(14px + env(safe-area-inset-right));
   bottom: calc(14px + env(safe-area-inset-bottom));
@@ -226,7 +264,9 @@
   #navmap .info.hidden,
   #navmap .close,
   #navmap .setcourse,
-  #contextchip {
+  #contextchip,
+  #touchcontrols .stickbase,
+  #touchcontrols .sticknub {
     transition-duration: 1ms !important;
   }
 }

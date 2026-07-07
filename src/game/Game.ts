@@ -226,6 +226,13 @@ export class Game {
     this.applyQualityResolve();
   }
 
+  // Called by main.ts once persisted Settings have loaded, and again by the
+  // Onboarding overlay's own dismiss callback — only affects the touch
+  // thumbstick's idle hint ring (TouchControls.setOnboarded).
+  setOnboarded(onboarded: boolean): void {
+    this.touch.setOnboarded(onboarded);
+  }
+
   private applyQualityResolve(benchFrameMs?: number): void {
     const tier = resolveQualityTier(this.qualitySetting, {
       dpr: window.devicePixelRatio,
