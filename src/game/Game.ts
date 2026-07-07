@@ -607,6 +607,7 @@ export class Game {
       this.sling.kind === "captured" ? this.sling.bodyName : null,
       t / 1000,
     );
+    this.renderer.updateStarfield(t / 1000);
 
     const shipRender = toRender(this.fo, this.ship.position);
     const shipVec = new THREE.Vector3(shipRender.x, shipRender.y, shipRender.z);

@@ -2,23 +2,150 @@ import * as THREE from "three";
 import { Body } from "../../sim/Body";
 import { toRender, FloatingOrigin } from "../../sim/FloatingOrigin";
 import { toonMaterial, addOutline } from "../toon";
+import { prng } from "../../game/feel/prng";
+import {
+  generateStars,
+  generateBand,
+  bandNormal,
+  orthonormalBasis,
+  STAR_TINTS,
+  StarField,
+} from "../../game/feel/starfieldSpec";
+import { createStarfieldMaterial } from "./starfieldMaterial";
 
-export function createStarfield(): THREE.Points {
-  const count = 3000;
-  const radius = 5e8;
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const theta = (i * 2.399963) % (Math.PI * 2);
-    const y = 1 - (i / (count - 1)) * 2;
-    const r = Math.sqrt(1 - y * y);
-    positions[i * 3] = Math.cos(theta) * r * radius;
-    positions[i * 3 + 1] = y * radius;
-    positions[i * 3 + 2] = Math.sin(theta) * r * radius;
+// Same overall scale as the old flat starfield — nothing else about the
+// scene should need to change.
+const STARFIELD_RADIUS = 5e8;
+const MAIN_COUNT = 3000;
+const BAND_COUNT = 1500;
+// Fixed seeds: the sky is part of the scene's identity, not randomized per
+// run (a reload shouldn't rearrange the stars).
+const MAIN_SEED = 20260706;
+const BAND_SEED = 918273;
+
+export interface Starfield {
+  group: THREE.Group;
+  update(tSec: number): void;
+}
+
+// Two nebula hues along the band, alternated; canvas radial-gradient
+// textures kept as render glue (the spec module stays Three-free).
+const NEBULA_HUES = ["#4a5a9a", "#7a4a8a"];
+const NEBULA_COUNT = 4;
+
+function makeNebulaTexture(hex: string, peakAlpha: number): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const c = new THREE.Color(hex);
+  const [r, g, b] = [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)];
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${peakAlpha})`);
+  grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${peakAlpha * 0.4})`);
+  grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
+}
+
+// A handful of huge soft glows along the band's great circle — dust-lane
+// color, not readable as individual objects.
+function createNebula(seed: number, radius: number): THREE.Sprite[] {
+  const normal = bandNormal(seed);
+  const { u, v } = orthonormalBasis(normal);
+  const rng = prng(seed ^ 0x5eed);
+  const sprites: THREE.Sprite[] = [];
+  for (let i = 0; i < NEBULA_COUNT; i++) {
+    const angle = (i / NEBULA_COUNT) * Math.PI * 2 + (rng() - 0.5) * 0.6;
+    const x = Math.cos(angle) * u[0] + Math.sin(angle) * v[0];
+    const y = Math.cos(angle) * u[1] + Math.sin(angle) * v[1];
+    const z = Math.cos(angle) * u[2] + Math.sin(angle) * v[2];
+    const hue = NEBULA_HUES[i % NEBULA_HUES.length];
+    const alpha = 0.05 + rng() * 0.03; // peak 0.05-0.08
+    const mat = new THREE.SpriteMaterial({
+      map: makeNebulaTexture(hue, alpha),
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.set(x * radius * 0.9, y * radius * 0.9, z * radius * 0.9);
+    sprite.scale.setScalar(radius * 0.4);
+    sprites.push(sprite);
   }
+  return sprites;
+}
+
+interface StarAttributes {
+  positions: Float32Array;
+  sizes: Float32Array;
+  colors: Float32Array;
+  phases: Float32Array;
+  amps: Float32Array;
+}
+
+function fillAttributes(
+  target: StarAttributes,
+  field: StarField,
+  offset: number,
+  count: number,
+  radius: number,
+  tintColors: THREE.Color[],
+): void {
+  for (let i = 0; i < count; i++) {
+    const si = offset + i;
+    target.positions[si * 3] = field.positions[i * 3] * radius;
+    target.positions[si * 3 + 1] = field.positions[i * 3 + 1] * radius;
+    target.positions[si * 3 + 2] = field.positions[i * 3 + 2] * radius;
+    target.sizes[si] = field.sizes[i];
+    const c = tintColors[field.colorIndex[i]];
+    target.colors[si * 3] = c.r;
+    target.colors[si * 3 + 1] = c.g;
+    target.colors[si * 3 + 2] = c.b;
+    target.phases[si] = field.twinklePhase[i];
+    target.amps[si] = field.twinkleAmp[i];
+  }
+}
+
+export function createStarfield(): Starfield {
+  const main = generateStars(MAIN_SEED, MAIN_COUNT);
+  const band = generateBand(BAND_SEED, BAND_COUNT);
+  const total = MAIN_COUNT + BAND_COUNT;
+  const tintColors = STAR_TINTS.map((hex) => new THREE.Color(hex));
+
+  const attrs: StarAttributes = {
+    positions: new Float32Array(total * 3),
+    sizes: new Float32Array(total),
+    colors: new Float32Array(total * 3),
+    phases: new Float32Array(total),
+    amps: new Float32Array(total),
+  };
+
+  fillAttributes(attrs, main, 0, MAIN_COUNT, STARFIELD_RADIUS, tintColors);
+  fillAttributes(attrs, band, MAIN_COUNT, BAND_COUNT, STARFIELD_RADIUS, tintColors);
+
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5e6, sizeAttenuation: true });
-  return new THREE.Points(geo, mat);
+  geo.setAttribute("position", new THREE.BufferAttribute(attrs.positions, 3));
+  geo.setAttribute("aSize", new THREE.BufferAttribute(attrs.sizes, 1));
+  geo.setAttribute("aColor", new THREE.BufferAttribute(attrs.colors, 3));
+  geo.setAttribute("aPhase", new THREE.BufferAttribute(attrs.phases, 1));
+  geo.setAttribute("aAmp", new THREE.BufferAttribute(attrs.amps, 1));
+
+  const material = createStarfieldMaterial();
+  const points = new THREE.Points(geo, material);
+
+  const group = new THREE.Group();
+  group.add(points);
+  for (const sprite of createNebula(BAND_SEED, STARFIELD_RADIUS)) group.add(sprite);
+
+  return {
+    group,
+    update(tSec: number): void {
+      material.uniforms.uTime.value = tSec;
+    },
+  };
 }
 
 export interface BodyView {

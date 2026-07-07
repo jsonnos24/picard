@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createStarfield } from "./scene/bodies";
+import { createStarfield, Starfield } from "./scene/bodies";
 
 // Tone mapping: a single obvious constant so the controller can flip between
 // ACES / Neutral / revert after a visual checkpoint without hunting for it.
@@ -16,6 +16,7 @@ export class Renderer {
   // isn't worth it. A field (not a literal) so a later quality setting can
   // lower it.
   private dprCap = 2;
+  private readonly starfield: Starfield;
 
   constructor(canvas: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
@@ -25,8 +26,16 @@ export class Renderer {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x070b18); // deep navy, not void-black
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1e9);
-    this.scene.add(createStarfield());
+    this.starfield = createStarfield();
+    this.scene.add(this.starfield.group);
     this.resize();
+  }
+
+  // Elapsed seconds since start — mirrors the t/1000 already handed to
+  // gravityRings.update so the twinkle stays in lockstep with the frame
+  // clock rather than drifting on its own timer.
+  updateStarfield(tSec: number): void {
+    this.starfield.update(tSec);
   }
 
   resize(): void {
