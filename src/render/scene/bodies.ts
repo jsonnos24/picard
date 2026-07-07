@@ -237,6 +237,7 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
       const canvas = paintSurface(spec);
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
+      tex.magFilter = THREE.NearestFilter;
       (mat as THREE.MeshToonMaterial).map = tex;
     }
     const mesh = new THREE.Mesh(geo, mat);
@@ -262,6 +263,7 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
       const ringGeo = new THREE.RingGeometry(body.rings.inner, body.rings.outer, 64);
       const ringTex = new THREE.CanvasTexture(paintRingTexture());
       ringTex.colorSpace = THREE.SRGBColorSpace;
+      ringTex.magFilter = THREE.NearestFilter;
       const ringMat = new THREE.MeshBasicMaterial({
         map: ringTex,
         side: THREE.DoubleSide,
