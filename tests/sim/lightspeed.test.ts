@@ -363,7 +363,7 @@ describe("freeCruiseStep — point-and-fly, no destination", () => {
 describe("cruising out from inside an obstacle bubble", () => {
   const sun = { position: new Vec3(0, 0, 0), bubbleRadius: 120_000 };
   const NO_STEER2 = { x: 0, y: 0 };
-  const flyObs = (start: Vec3, target: { position: Vec3; captureRadius: number }) => {
+  const flyObs = (start: Vec3, target: { position: Vec3; captureRadius: number; radius: number }) => {
     let p = start.clone();
     let v = Vec3.zero();
     for (let i = 0; i < 120 * 60; i++) {
@@ -378,7 +378,7 @@ describe("cruising out from inside an obstacle bubble", () => {
   it("allows an outbound escape cruise started inside the bubble", () => {
     // 80km from the Sun (inside the 120km bubble), target dead ahead outward:
     // must fly the whole way and ARRIVE (not blocked).
-    const target = { position: new Vec3(1_000_000, 0, 0), captureRadius: 12_000 };
+    const target = { position: new Vec3(1_000_000, 0, 0), captureRadius: 12_000, radius: 2_000 };
     const r = flyObs(new Vec3(80_000, 0, 0), target);
     expect(r.done).toBe(true);
     expect(r.blocked).toBe(false);
@@ -386,14 +386,14 @@ describe("cruising out from inside an obstacle bubble", () => {
   });
 
   it("still drops immediately when heading deeper in", () => {
-    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000 };
+    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000, radius: 2_000 };
     const r = lightspeedStep(new Vec3(80_000, 0, 0), new Vec3(0, 0, 0), farTarget, NO_STEER2, 1 / 60, DEFAULT_LS_PARAMS, sun);
     expect(r.done).toBe(true);
     expect(r.blocked).toBe(true);
   });
 
   it("outside the bubble, a blocked chord still stops at the boundary", () => {
-    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000 };
+    const farTarget = { position: new Vec3(-1_000_000, 0, 0), captureRadius: 12_000, radius: 2_000 };
     const r = flyObs(new Vec3(500_000, 0, 0), farTarget);
     expect(r.done).toBe(true);
     expect(r.blocked).toBe(true);
