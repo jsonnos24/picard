@@ -9,7 +9,7 @@
 import type { Cue } from "../game/feel/audioCues";
 import type { Levels } from "../game/feel/audioLevels";
 import type { Mood } from "../game/feel/musicBed";
-import { playCue } from "./patches";
+import { playCue, uiClick as uiClickPatch } from "./patches";
 import { createLayers, applyLevels, Layers } from "./layers";
 import { createMusic, Music } from "./music";
 
@@ -138,6 +138,25 @@ export class AudioDirector {
 
     if (this.layers) applyLevels(this.layers, levels, dt);
     this.music?.step(dt, mood);
+  }
+
+  // UI click blip (Phase B): fired straight from a DOM click handler, not
+  // from a snapshot edge, so it deliberately bypasses the Cue/audioCues/
+  // playCue pipeline — see patches.ts's uiClick doc comment. Same guard
+  // order as frame(): the cue ring records unconditionally (headless verify
+  // asserts on it with the context permanently "suspended"), the actual
+  // patch only plays past that when the context is running and unmuted.
+  uiClick(): void {
+    this.cueLog.push({ t: this.elapsed, cue: "uiClick" });
+    if (this.cueLog.length > CUE_RING_SIZE) this.cueLog.shift();
+
+    if (!this.ctx || !this.masterGain || this.ctx.state !== "running") return;
+    if (this.muted || !this.sfxBus) return;
+    try {
+      uiClickPatch(this.ctx, this.sfxBus, this.ctx.currentTime);
+    } catch {
+      // A bad patch must never throw out of a click handler.
+    }
   }
 
   setMuted(m: boolean): void {

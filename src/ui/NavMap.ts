@@ -21,7 +21,18 @@ export class NavMap {
   private readonly hit: { name: string; x: number; y: number }[] = [];
   private dpr = 1;
 
-  constructor(root: HTMLElement, private readonly bodies: Body[]) {
+  constructor(
+    root: HTMLElement,
+    private readonly bodies: Body[],
+    // Optional so existing/test call sites building a bare NavMap don't need
+    // to thread an audio callback through. Game.ts (the only real composition
+    // site for this component) passes () => this.audio.uiClick() — same
+    // "callback out, never import the director in" discipline as
+    // SettingsPanel/MuteButton in main.ts. Only wired to the × button and
+    // SET COURSE per spec; the backdrop click, Esc-router close, and M
+    // toggle all funnel through close() too but are not "clicking a control".
+    private readonly onUiClick?: () => void,
+  ) {
     this.el = document.createElement("div");
     this.el.id = "navmap";
     // Backdrop click (anywhere that isn't the panel) closes, same path as
@@ -46,6 +57,7 @@ export class NavMap {
     this.closeBtn.textContent = "×";
     this.closeBtn.setAttribute("aria-label", "Close nav map");
     this.closeBtn.addEventListener("click", () => {
+      this.onUiClick?.();
       this.close();
       this.closeBtn.blur(); // keep keyboard game input alive after the click
     });
@@ -68,6 +80,7 @@ export class NavMap {
     this.setCourseBtn.type = "button";
     this.setCourseBtn.textContent = "SET COURSE";
     this.setCourseBtn.addEventListener("click", () => {
+      this.onUiClick?.();
       // Tap-to-target already set the target; this just closes the map.
       this.close();
       this.setCourseBtn.blur();

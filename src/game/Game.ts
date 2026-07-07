@@ -80,6 +80,8 @@ import {
   buildSnapshot,
   idleSnapshot,
   idleCues,
+  WARN_VSPEED,
+  WARN_ALTITUDE,
 } from "./feel/snapshot";
 import { SAFE_VSPEED } from "./landing";
 import { audioCues } from "./feel/audioCues";
@@ -229,7 +231,7 @@ export class Game {
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
     new Controls(document.getElementById("ui")!);
-    this.navmap = new NavMap(document.getElementById("ui")!, this.bodies);
+    this.navmap = new NavMap(document.getElementById("ui")!, this.bodies, () => this.audio.uiClick());
     this.touch = new TouchControls(document.getElementById("ui")!, this.input);
     this.chip = new ContextChip(document.getElementById("ui")!);
     this.warpFx = createWarpEffect(this.renderer.scene);
@@ -1006,7 +1008,7 @@ export class Game {
       throttle: this.ship.throttle,
       warning: inSunBubble
         ? "☀ SOLAR HEAT — PULL AWAY"
-        : vUp < -20 && pb.altitude < 500
+        : vUp < WARN_VSPEED && pb.altitude < WARN_ALTITUDE
           ? "HIGH DESCENT RATE"
           : this.missionElapsed < this.noticeUntil
             ? this.notice

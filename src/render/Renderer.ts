@@ -4,6 +4,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import type { QualityTier } from "../game/feel/quality";
 
 // Tone mapping: a single obvious constant so the controller can flip between
 // ACES / Neutral / revert after a visual checkpoint without hunting for it.
@@ -18,8 +19,6 @@ const TONE_MAPPING_EXPOSURE = 1.15;
 const BLOOM_STRENGTH = 0.55;
 const BLOOM_RADIUS = 0.4;
 const BLOOM_THRESHOLD = 0.85;
-
-export type QualityTier = "high" | "low";
 
 export class Renderer {
   readonly scene: THREE.Scene;
@@ -149,11 +148,17 @@ export class Renderer {
   // bloom composer; "low" tears it down — the HalfFloat MSAA render target
   // and UnrealBloomPass's mip-chain targets are real VRAM, not just skipped
   // draw calls, so low tier frees them rather than leaving them idle. Sun
-  // sprites already carry the glow look at low tier.
+  // sprites already carry the glow look at low tier. Low tier also caps DPR
+  // at 1.5 (vs. high's 2) — fewer fragments to shade is the other half of
+  // "low" alongside dropping bloom. resize() re-applies the new dprCap to
+  // the renderer/composer/starfield in one place rather than duplicating
+  // that logic here.
   setQualityTier(tier: QualityTier): void {
     this.tier = tier;
+    this.dprCap = tier === "low" ? 1.5 : 2;
     if (tier === "high") this.ensureComposer();
     else this.teardownComposer();
+    this.resize();
   }
 
   render(): void {

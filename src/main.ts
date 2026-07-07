@@ -36,6 +36,7 @@ game.setQualitySetting(settings.quality);
 // display via its setMuted(), but only its own click ever calls back here,
 // so `settings.muted` (this module's single source of truth) never loops.
 const muteBtn = new MuteButton(document.getElementById("ui")!, settings.muted, (muted) => {
+  game.audio.uiClick();
   settings = { ...settings, muted };
   game.audio.setMuted(muted);
   localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
@@ -57,15 +58,23 @@ const onboarding = new Onboarding(document.getElementById("ui")!, () => {
 // `settings`/localStorage/game.audio/game.setQualitySetting glue as above.
 // onOpenChange feeds Game's shared pause gate (setSettingsOpen) — the panel
 // itself never touches sim/pause state directly.
+// onVolumeChange deliberately does NOT fire uiClick — it's a continuous
+// "input" event per drag tick, not a discrete click, and would flood the
+// cue ring / spam blips while dragging.
 const settingsPanel = new SettingsPanel(document.getElementById("ui")!, settings, {
-  onOpenChange: (open) => game.setSettingsOpen(open),
+  onOpenChange: (open) => {
+    game.audio.uiClick();
+    game.setSettingsOpen(open);
+  },
   onMutedChange: (muted) => {
+    game.audio.uiClick();
     settings = { ...settings, muted };
     game.audio.setMuted(muted);
     localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
     muteBtn.setMuted(muted);
   },
   onMusicChange: (musicEnabled) => {
+    game.audio.uiClick();
     settings = { ...settings, musicEnabled };
     game.audio.setMusicEnabled(musicEnabled);
     localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
@@ -76,12 +85,17 @@ const settingsPanel = new SettingsPanel(document.getElementById("ui")!, settings
     localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
   },
   onQualityChange: (quality) => {
+    game.audio.uiClick();
     settings = { ...settings, quality };
     game.setQualitySetting(quality);
     localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
   },
-  onResetToPad: () => game.resetToPad(),
+  onResetToPad: () => {
+    game.audio.uiClick();
+    game.resetToPad();
+  },
   onReplayTutorial: () => {
+    game.audio.uiClick();
     settings = { ...settings, onboarded: false };
     localStorage.setItem(SETTINGS_KEY, serializeSettings(settings));
     game.setOnboarded(false);

@@ -433,6 +433,19 @@ export function uiNavClose(ctx: AudioContext, dest: AudioNode, when: number): vo
   blip(ctx, dest, when, UI_BLIPS.uiNavClose, UI_BLIPS.dur, "triangle", 0.25);
 }
 
+// --- uiClick -----------------------------------------------------------
+// NOT part of the Cue union: uiClick fires from DOM click handlers (mute
+// toggle, settings controls, nav map × / SET COURSE), not from an
+// audioCues() snapshot edge, so it has no place in that pure edge-detector's
+// exhaustive switch. AudioDirector.uiClick() calls this directly. Distinct
+// timbre (sine, not uiNavOpen's triangle) at the same ballpark pitch keeps
+// it recognizable as "a click" without being confused for nav-open/close.
+export const UI_CLICK = { freq: 440, dur: 0.05 };
+
+export function uiClick(ctx: AudioContext, dest: AudioNode, when: number): void {
+  blip(ctx, dest, when, UI_CLICK.freq, UI_CLICK.dur, "sine", 0.2);
+}
+
 // --- dispatcher --------------------------------------------------------
 export interface PlayCueOpts {
   chargeDurSec?: number;
