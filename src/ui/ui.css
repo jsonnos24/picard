@@ -33,14 +33,17 @@
 /* Transient status rows (lightspeed/sling/assist/warning/hint) show/hide via
    a .hidden class instead of display:none so opacity+transform can
    transition; visibility flips only after the fade completes on hide, but
-   immediately on show, so a shown row is interactive/visible right away. */
+   immediately on show, so a shown row is interactive/visible right away.
+   max-height/margin collapse the row when hidden to avoid reserving layout space. */
 #hud .row.status {
   opacity: 1; transform: translateY(0); visibility: visible; margin-top: 4px;
-  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s linear 0s;
+  max-height: 2em; overflow: hidden;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s linear 0s, max-height var(--t-med) var(--ease-out), margin-top var(--t-med) var(--ease-out);
 }
 #hud .row.status.hidden {
   opacity: 0; transform: translateY(6px); visibility: hidden; pointer-events: none;
-  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+  max-height: 0; margin-top: 0; overflow: hidden;
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast), max-height var(--t-fast) var(--ease-out), margin-top var(--t-fast) var(--ease-out);
 }
 #hud .row.warn { color: var(--danger); font-weight: 800; }
 #hud .row.warn:not(.hidden) { animation: hud-pulse 500ms ease-in-out infinite; }
