@@ -162,8 +162,9 @@ export class SettingsPanel {
 
     // RESET TO PAD: two-tap confirm, no browser confirm() dialog. First tap
     // arms it (label flips to "ARE YOU SURE?"); a second tap while armed
-    // fires the reset; anything else (blur, timeout, closing the panel)
-    // disarms it back to the normal label.
+    // fires the reset; anything else (the 3s confirm timeout elapsing, or
+    // closing the panel) disarms it back to the normal label — there is no
+    // blur listener, so losing focus alone does not disarm it.
     this.resetBtn = document.createElement("button");
     this.resetBtn.type = "button";
     this.resetBtn.className = "reset";

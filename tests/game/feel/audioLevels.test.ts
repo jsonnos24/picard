@@ -35,9 +35,13 @@ describe("audioLevels", () => {
     expect(l.danger).toBe(0);
   });
 
-  it("engine is silent when navMapOpen even if paused weren't set", () => {
+  // navMapOpen alone is no longer special-cased: Game's shared uiPaused gate
+  // (see Game.ts's `uiPaused` getter) always sets `paused` true whenever
+  // navMapOpen is true, so the redundant `|| cur.navMapOpen` term was
+  // removed — `paused` is the single real gate this module reads.
+  it("navMapOpen without paused is not silenced — paused is the single gate", () => {
     const l = audioLevels(mk({ navMapOpen: true, paused: false, throttle: 1 }));
-    expect(l.engine).toBe(0);
+    expect(l.engine).toBeGreaterThan(0);
   });
 
   it("wind is 0 in vacuum regardless of speed", () => {

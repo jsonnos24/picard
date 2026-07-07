@@ -38,7 +38,10 @@ function clamp01(x: number): number {
 }
 
 export function audioLevels(cur: FrameSnapshot): Levels {
-  if (cur.paused || cur.navMapOpen) {
+  // navMapOpen isn't checked separately: Game's shared uiPaused gate always
+  // sets `paused` true whenever navMapOpen is true (see Game.ts's `uiPaused`
+  // getter), so `paused` alone is the single real gate.
+  if (cur.paused) {
     // Hints reset to neutral (no pitch/filter shift) rather than 0 — nothing
     // reads them while their gain is silent, but 0 would read as "shifted
     // all the way down" if anything ever samples them directly.
