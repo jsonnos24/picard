@@ -105,7 +105,7 @@
 #settingspanel.open { display: block; pointer-events: auto; }
 #settingspanel .panel {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: min(90vw, 420px); max-height: min(85vh, 560px); overflow-y: auto;
+  width: min(90vw, 420px); max-height: min(85vh, 560px); max-height: min(85dvh, 560px); overflow-y: auto;
   background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   padding: 44px 16px 16px;
@@ -215,7 +215,7 @@
 #navmap.open { display: block; pointer-events: auto; }
 #navmap .panel {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: min(90vw, 560px); height: min(70vh, 420px);
+  width: min(90vw, 560px); height: min(70vh, 420px); height: min(70dvh, 420px);
   background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
 }
