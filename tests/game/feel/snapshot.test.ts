@@ -54,6 +54,7 @@ describe("buildSnapshot", () => {
     expect(s.jumped).toBe(false);
     expect(s.ringCapturedName).toBeNull();
     expect(s.breakaway).toBe(false);
+    expect(s.arrived).toBe(false);
   });
 
   it("one-shot cues appear in the snapshot they're set in, and clear the next frame", () => {

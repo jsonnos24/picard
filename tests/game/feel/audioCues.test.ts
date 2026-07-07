@@ -68,25 +68,33 @@ describe("audioCues", () => {
     expect(audioCues(prev, cur)).toContain("warpEngage");
   });
 
-  it("warpArrive: cruising true -> false while lsSeqPhase reads settle (natural wind-down)", () => {
+  it("warpArrive: cruising true -> false with the arrived one-shot set (natural arrival, Game sets it at the r.done call sites)", () => {
     const prev = mk({ cruising: true, lsSeqPhase: "cruise" });
-    const cur = mk({ cruising: false, lsSeqPhase: "settle" });
+    const cur = mk({ cruising: false, lsSeqPhase: "settle", arrived: true });
     const cues = audioCues(prev, cur);
     expect(cues).toContain("warpArrive");
     expect(cues).not.toContain("warpAbort");
   });
 
-  it("warpArrive: cruising true -> false the same frame ringCapturedName becomes non-null", () => {
+  it("warpArrive: cruising true -> false with arrived set the same frame ringCapturedName becomes non-null (hand-off into a body's sling)", () => {
     const prev = mk({ cruising: true, lsSeqPhase: "cruise", ringCapturedName: null });
-    const cur = mk({ cruising: false, lsSeqPhase: "cruise", ringCapturedName: "Mars" });
+    const cur = mk({ cruising: false, lsSeqPhase: "cruise", ringCapturedName: "Mars", arrived: true });
     const cues = audioCues(prev, cur);
     expect(cues).toContain("warpArrive");
     expect(cues).not.toContain("warpAbort");
   });
 
-  it("warpAbort: cruising true -> false without settling and without a fresh capture", () => {
+  it("warpAbort: cruising true -> false without the arrived one-shot (player-cancelled, toggleLightspeed's dropout path)", () => {
     const prev = mk({ cruising: true, lsSeqPhase: "cruise", ringCapturedName: null });
-    const cur = mk({ cruising: false, lsSeqPhase: "cruise", ringCapturedName: null });
+    const cur = mk({ cruising: false, lsSeqPhase: "cruise", ringCapturedName: null, arrived: false });
+    const cues = audioCues(prev, cur);
+    expect(cues).toContain("warpAbort");
+    expect(cues).not.toContain("warpArrive");
+  });
+
+  it("warpAbort: cruising true -> false even while lsSeqPhase already reads settle, as long as arrived is false (settle alone is no longer a signal)", () => {
+    const prev = mk({ cruising: true, lsSeqPhase: "cruise" });
+    const cur = mk({ cruising: false, lsSeqPhase: "settle", arrived: false });
     const cues = audioCues(prev, cur);
     expect(cues).toContain("warpAbort");
     expect(cues).not.toContain("warpArrive");

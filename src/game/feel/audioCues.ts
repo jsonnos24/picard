@@ -72,19 +72,11 @@ export function audioCues(prev: FrameSnapshot | null, cur: FrameSnapshot): Cue[]
   }
 
   if (prev.cruising && !cur.cruising) {
-    // Snapshot carries no explicit "arrived" flag, and lsSeqPhase transitions
-    // to "settle" on both a natural arrival and a manual abort (endCruise()
-    // is the single wind-down path for either), so this is a heuristic, not
-    // a hard signal — documented per the brief's fallback: treat it as an
-    // arrival if a ring capture landed on this very frame (docking into a
-    // body's sling) OR the sequence already reads "settle". Anything else
-    // (cruising drops while still mid "cruise"/"burst"/"charge") reads as a
-    // player-cancelled abort. If real Game.ts wiring turns out to always
-    // reach "settle" by the time cruising flips false, warpAbort may need a
-    // dedicated signal from Game — flagged for the audio-director task.
-    const arrivedByCapture = prev.ringCapturedName === null && cur.ringCapturedName !== null;
-    const arrived = arrivedByCapture || cur.lsSeqPhase === "settle";
-    cues.push(arrived ? "warpArrive" : "warpAbort");
+    // cur.arrived is a hard signal, not a heuristic: Game sets it only at the
+    // natural-arrival call sites (the r.done handling in the guided/free
+    // cruise blocks in stepSim), never on the player-cancelled abort path
+    // (toggleLightspeed's dropout branch). See snapshot.ts's SnapshotCues.
+    cues.push(cur.arrived ? "warpArrive" : "warpAbort");
   }
 
   if (!prev.inSunBubble && cur.inSunBubble) {

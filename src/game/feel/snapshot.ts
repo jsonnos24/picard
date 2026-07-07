@@ -43,11 +43,17 @@ export interface FrameSnapshot {
   navMapOpen: boolean;
   paused: boolean;
   missionElapsed: number;
+  // one-shot: this frame is a natural lightspeed arrival (set at the r.done
+  // call sites in Game.stepSim's guided/free cruise blocks), never a player
+  // abort (toggleLightspeed's dropout path never sets it). Lets audioCues
+  // disambiguate warpArrive from warpAbort without guessing from lsSeqPhase.
+  arrived: boolean;
 }
 
 // One-shot cues Game detects at specific sites during a frame (crash,
-// touchdown, board/disembark, jump, a perfect sling release) and clears
-// back to idle once the snapshot for that frame has been built.
+// touchdown, board/disembark, jump, a perfect sling release, a natural
+// lightspeed arrival) and clears back to idle once the snapshot for that
+// frame has been built.
 export interface SnapshotCues {
   snapped: boolean;
   touchdownKind: TouchdownKind;
@@ -55,6 +61,7 @@ export interface SnapshotCues {
   boarded: boolean;
   disembarked: boolean;
   jumped: boolean;
+  arrived: boolean;
 }
 
 export function idleCues(): SnapshotCues {
@@ -65,6 +72,7 @@ export function idleCues(): SnapshotCues {
     boarded: false,
     disembarked: false,
     jumped: false,
+    arrived: false,
   };
 }
 
@@ -114,6 +122,7 @@ export function buildSnapshot(inputs: SnapshotInputs): FrameSnapshot {
     boarded: inputs.cues.boarded,
     disembarked: inputs.cues.disembarked,
     jumped: inputs.cues.jumped,
+    arrived: inputs.cues.arrived,
     ringCapturedName: inputs.ringCapturedName,
     breakaway: inputs.breakawayHold > 0,
     assistOn: inputs.assistOn,

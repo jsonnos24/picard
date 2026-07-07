@@ -218,6 +218,7 @@ export class Game {
         this.cruising = false;
         this.lsTargetName = null;
         this.lsSeq = endCruise(this.lsSeq);
+        this.pendingCues.arrived = true;
       }
       this.updatePhaseFromAltitude();
       return;
@@ -240,6 +241,7 @@ export class Game {
         this.lsFree = false;
         this.lsFreeDir = null;
         this.lsSeq = endCruise(this.lsSeq);
+        this.pendingCues.arrived = true;
         if (r.bodyName) this.showNotice(`ENTERING ${r.bodyName.toUpperCase()}'S GRAVITY RING`);
       }
       this.updatePhaseFromAltitude();
