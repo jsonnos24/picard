@@ -428,6 +428,7 @@ export class Game {
       if (pb.altitude < this.padHeight && shouldHoldOnSurface(thrustMag, surfaceGravity(pb.body))) {
         this.ship.position = pb.body.position.add(pb.up.scale(pb.body.radius + this.padHeight));
         this.ship.velocity = Vec3.zero();
+        this.refreshPrimary();
       }
     }
 
@@ -445,6 +446,7 @@ export class Game {
       const result = evaluateTouchdown(pb.altitude, vUp, tilt, this.padHeight);
       if (result === "landed") {
         this.snapToSurface(pb.body, pb.up, this.padHeight);
+        this.refreshPrimary();
         this.phase = transition(this.phase, { kind: "landed", body: pb.body.name });
         this.assistOn = false;
         this.ship.throttle = 0;
