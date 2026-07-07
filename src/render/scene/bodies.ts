@@ -12,6 +12,10 @@ import {
   StarField,
 } from "../../game/feel/starfieldSpec";
 import { createStarfieldMaterial } from "./starfieldMaterial";
+import { surfaceSpec } from "../../game/feel/planetSurface";
+import { paintSurface, paintRingTexture } from "./planetTexture";
+import { createAtmosphereRim } from "./atmosphereRim";
+import { createSunGlow, SunGlow } from "./sunGlow";
 
 // Same overall scale as the old flat starfield — nothing else about the
 // scene should need to change.
@@ -161,22 +165,59 @@ export interface BodyView {
   body: Body;
   mesh: THREE.Mesh;
   outline?: THREE.Mesh;
+  rim?: THREE.Mesh;
+  spinRate?: number; // rad/s, render-only (see updateBodies)
+  sunGlow?: SunGlow;
 }
 
-// A soft radial glow sprite for the Sun, drawn once onto a canvas.
-function makeGlowTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, "rgba(255, 230, 140, 0.9)");
-  grad.addColorStop(0.4, "rgba(255, 190, 80, 0.35)");
-  grad.addColorStop(1, "rgba(255, 160, 40, 0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
+// Render-side per-name config — NOT sim fields (sim's Body only carries a
+// flat `color` hint; everything below is purely cosmetic and belongs here,
+// per the Phase C2 brief).
+
+const GAS_GIANTS = new Set(["Jupiter", "Saturn", "Uranus", "Neptune"]);
+
+// Gas giants spin fastest, rocky planets slower, the tidally-locked-reading
+// Moon slowest of all. The Sun doesn't spin here (its "life" comes from the
+// layered glow instead — see createSunGlow).
+function spinRateFor(body: Body): number {
+  if (body.kind === "star") return 0;
+  if (body.name === "Moon") return 0.004;
+  if (GAS_GIANTS.has(body.name)) return 0.02;
+  return 0.008;
+}
+
+function paleTint(hex: number, amount = 0.55): number {
+  return new THREE.Color(hex).lerp(new THREE.Color(0xffffff), amount).getHex();
+}
+
+// Atmosphere rim tint per body — only bodies with a readable atmosphere in
+// this cartoon's fiction get one (rocky bodies with air + the gas giants);
+// airless Mercury/Moon never get a rim.
+const ATMOSPHERE_TINTS: Record<string, number> = {
+  Earth: 0x6fc0ff,
+  Mars: 0xe8a06a,
+  Venus: 0xf0d890,
+  Jupiter: paleTint(0xe8a15c),
+  Saturn: paleTint(0xf0cf8b),
+  Uranus: paleTint(0x7fd4e0),
+  Neptune: paleTint(0x4f7bff),
+};
+
+// Fixed, non-random seed base: surface painting must be identical every run
+// (reload shouldn't repaint continents in new places), but still vary
+// per-body — hashed together with the body's name.
+const SURFACE_SEED_BASE = 0x9e3779b9;
+
+function seedFromName(name: string): number {
+  let h = SURFACE_SEED_BASE >>> 0;
+  for (let i = 0; i < name.length; i++) {
+    h = Math.imul(h ^ name.charCodeAt(i), 16777619) >>> 0;
+  }
+  return h;
+}
+
+function hexColorString(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
 }
 
 export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
@@ -190,56 +231,71 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
         ? // The Sun glows on its own — unlit, and it carries the scene's light.
           new THREE.MeshBasicMaterial({ color: body.color })
         : toonMaterial(body.color);
+    if (body.kind !== "star") {
+      // Surface painting happens once, here, at startup — never per frame.
+      const spec = surfaceSpec(body.name, seedFromName(body.name), hexColorString(body.color));
+      const canvas = paintSurface(spec);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      (mat as THREE.MeshToonMaterial).map = tex;
+    }
     const mesh = new THREE.Mesh(geo, mat);
     let outline: THREE.Mesh | undefined;
+    let rim: THREE.Mesh | undefined;
+    let sunGlow: SunGlow | undefined;
     if (body.kind === "star") {
       // Sunlight radiates from the star itself; no-falloff so the outer planets
       // read just as brightly (cartoon, not photometry).
       const light = new THREE.PointLight(0xfff5e8, 2.2, 0, 0);
       mesh.add(light);
-      const glow = new THREE.Sprite(
-        new THREE.SpriteMaterial({
-          map: makeGlowTexture(),
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      );
-      glow.scale.setScalar(body.radius * 7);
-      mesh.add(glow);
+      sunGlow = createSunGlow(body.radius);
+      mesh.add(sunGlow.group);
     } else {
       outline = addOutline(mesh, 1.02);
+      const tint = ATMOSPHERE_TINTS[body.name];
+      if (tint !== undefined) {
+        rim = createAtmosphereRim(body.radius, tint);
+        mesh.add(rim);
+      }
     }
     if (body.rings) {
       const ringGeo = new THREE.RingGeometry(body.rings.inner, body.rings.outer, 64);
+      const ringTex = new THREE.CanvasTexture(paintRingTexture());
+      ringTex.colorSpace = THREE.SRGBColorSpace;
       const ringMat = new THREE.MeshBasicMaterial({
-        color: 0xe8d9a8,
+        map: ringTex,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.85,
       });
       const rings = new THREE.Mesh(ringGeo, ringMat);
       rings.rotation.x = -Math.PI / 2; // lie in the ecliptic
       mesh.add(rings);
     }
     scene.add(mesh);
-    return { body, mesh, outline };
+    return { body, mesh, outline, rim, spinRate: spinRateFor(body), sunGlow };
   });
 }
 
 export function updateBodies(
   views: BodyView[],
   fo: FloatingOrigin,
+  dtSec: number,
+  tSec: number,
   cameraPos?: THREE.Vector3,
 ): void {
   for (const view of views) {
     const p = toRender(fo, view.body.position);
     view.mesh.position.set(p.x, p.y, p.z);
-    if (view.outline && cameraPos) {
-      // The ink line is a planet-scale shell — hide it while the camera is
-      // near/inside it, or it swallows the whole sky at ground level.
+    if (view.spinRate) view.mesh.rotation.y += view.spinRate * dtSec;
+    if (view.sunGlow) view.sunGlow.update(tSec);
+    if (cameraPos) {
       const dist = view.mesh.position.distanceTo(cameraPos);
-      view.outline.visible = dist > view.body.radius * 1.25;
+      // The ink line and atmosphere rim are planet-scale shells — hide them
+      // together while the camera is near/inside, or they swallow the whole
+      // sky at ground level.
+      const visible = dist > view.body.radius * 1.25;
+      if (view.outline) view.outline.visible = visible;
+      if (view.rim) view.rim.visible = visible;
     }
   }
 }

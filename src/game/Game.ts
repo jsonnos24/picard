@@ -601,7 +601,7 @@ export class Game {
 
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
-    updateBodies(this.views, this.fo, this.renderer.camera.position);
+    updateBodies(this.views, this.fo, dt, t / 1000, this.renderer.camera.position);
     this.gravityRings.update(
       this.fo,
       this.sling.kind === "captured" ? this.sling.bodyName : null,
