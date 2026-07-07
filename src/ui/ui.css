@@ -1,54 +1,156 @@
-#ui { position: absolute; inset: 0; pointer-events: none; font-family: "Courier New", monospace; color: #9cf; }
-#hud { position: absolute; left: calc(16px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom));
-       font-size: 14px; line-height: 1.5;
-       text-shadow: 0 0 4px #000; background: rgba(0,0,20,0.35); padding: 10px 14px; border: 1px solid #2a3; }
-#hud .warn { color: #f55; font-weight: bold; }
-#hud .warp { color: #6cf; font-weight: bold; }
-#hud .hint { color: #fd6; font-weight: bold; font-size: 1.1em; margin-top: 4px; }
-#hud .row b { color: #cef; }
+/* ---- PICARD identity: cream/amber on ink-navy, cartoon-warm not sim-military */
+:root {
+  --ink: #070b18;
+  --ink-panel: rgba(7, 11, 24, 0.82);
+  --accent: #ffd98a;
+  --accent-border: rgba(255, 217, 138, 0.35);
+  --accent-dim: rgba(255, 217, 138, 0.55);
+  --accent-faint: rgba(255, 217, 138, 0.18);
+  --danger: #e04a3f;
+  --success: #7fd97f;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Mono", monospace;
+  --font-display: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --radius: 10px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 150ms;
+  --t-med: 180ms;
+}
+
+#ui { position: absolute; inset: 0; pointer-events: none; font-family: var(--font-mono); color: var(--accent); }
+
+/* ---- HUD ---- */
+#hud {
+  position: absolute; left: calc(16px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom));
+  font-size: 14px; line-height: 1.6; font-family: var(--font-mono); color: var(--accent);
+  text-shadow: none;
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  padding: 10px 14px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  max-width: min(80vw, 320px);
+}
+#hud .row { white-space: nowrap; }
+#hud .row b { color: var(--accent); font-family: var(--font-mono); font-weight: 700; }
+
+/* Transient status rows (lightspeed/sling/assist/warning/hint) show/hide via
+   a .hidden class instead of display:none so opacity+transform can
+   transition; visibility flips only after the fade completes on hide, but
+   immediately on show, so a shown row is interactive/visible right away. */
+#hud .row.status {
+  opacity: 1; transform: translateY(0); visibility: visible; margin-top: 4px;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s linear 0s;
+}
+#hud .row.status.hidden {
+  opacity: 0; transform: translateY(6px); visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+}
+#hud .row.warn { color: var(--danger); font-weight: 800; }
+#hud .row.warn:not(.hidden) { animation: hud-pulse 500ms ease-in-out infinite; }
+#hud .row.warp { color: var(--accent); font-weight: 800; }
+#hud .row.hint { color: var(--accent); font-weight: 700; font-size: 1.05em; }
+
+@keyframes hud-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 /* Touch players get their instructions from the context button instead. */
-@media (pointer: coarse) { #hud .hint { display: none !important; } }
+@media (pointer: coarse) { #hud .row.hint { display: none !important; } }
 
-#mutebtn { position: absolute; top: 16px; right: 16px; pointer-events: auto; z-index: 30;
-           width: 40px; height: 40px; font-size: 18px; line-height: 1;
-           background: rgba(0,0,20,0.4); border: 1px solid #2a3; border-radius: 6px;
-           color: #9cf; cursor: pointer; }
-#mutebtn:hover { background: rgba(0,0,20,0.6); }
+/* ---- Mute button ---- */
+#mutebtn {
+  position: absolute; top: calc(16px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right));
+  pointer-events: auto; z-index: 30;
+  width: 44px; height: 44px; font-size: 18px; line-height: 1;
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  color: var(--accent); cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#mutebtn:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
+#mutebtn:active { transform: scale(0.94); }
 
-#controls { position: absolute; top: 64px; right: 16px; font: 12px/1.55 "Courier New", monospace;
-            color: #9cf; background: rgba(0,0,20,0.4); border: 1px solid #2a3; padding: 8px 12px;
-            max-width: 320px; text-shadow: 0 0 4px #000; }
-#controls.hidden { display: none; }
-#controls .title { color: #cef; font-weight: bold; margin-bottom: 4px; }
-#controls .hint { color: #688; font-weight: normal; }
+/* ---- Controls legend ---- */
+#controls {
+  position: absolute; top: calc(68px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right));
+  font: 12px/1.6 var(--font-mono); color: var(--accent);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  padding: 10px 14px; max-width: 320px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 1; transform: translateY(0); visibility: visible;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s linear 0s;
+}
+#controls.hidden {
+  opacity: 0; transform: translateY(-6px); visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+}
+#controls .title {
+  color: var(--accent); font: 800 12px/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+#controls .hint { color: var(--accent-dim); font-weight: 500; text-transform: none; letter-spacing: 0; }
 #controls .crow { display: flex; gap: 10px; }
-#controls .crow b { color: #6cf; min-width: 64px; display: inline-block; }
+#controls .crow b { color: var(--accent); min-width: 64px; display: inline-block; font-weight: 700; }
+#controls .crow span:not(b) { color: rgba(255, 217, 138, 0.75); }
 
-#navmap { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-          width: min(90vw, 560px); height: min(70vh, 420px); background: rgba(0,0,20,0.85); border: 1px solid #3a6;
-          pointer-events: auto; display: none; z-index: 20; /* above the touch steer zone */ }
+/* ---- Nav map ---- */
+#navmap {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(90vw, 560px); height: min(70vh, 420px);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  pointer-events: auto; display: none; z-index: 20; /* above the touch steer zone */
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
+}
 #navmap.open { display: block; }
 #navmap canvas { width: 100%; height: 100%; cursor: crosshair; touch-action: manipulation; }
-#navmap .title { position: absolute; top: 6px; left: 10px; color: #9cf; font: 12px monospace; }
-#ui .marker { position: absolute; transform: translate(-50%,-50%); color: #6f6;
-              font: 13px monospace; text-shadow: 0 0 4px #000; white-space: nowrap; }
+#navmap .title {
+  position: absolute; top: 8px; left: 12px; color: var(--accent);
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase;
+}
+#ui .marker {
+  position: absolute; transform: translate(-50%, -50%) scale(1); color: var(--success);
+  font: 700 13px var(--font-mono); text-shadow: 0 0 4px rgba(0, 0, 0, 0.6); white-space: nowrap;
+}
+#ui .marker.pop { animation: marker-pop 220ms var(--ease-out); }
+@keyframes marker-pop {
+  0% { transform: translate(-50%, -50%) scale(0.5); }
+  60% { transform: translate(-50%, -50%) scale(1.15); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
 
 /* ---- Touch layer: hidden on mouse machines, on for coarse pointers ---- */
 #touchcontrols { position: absolute; inset: 0; pointer-events: none; display: none; }
 @media (pointer: coarse) {
   #touchcontrols { display: block; }
   #controls { display: none; }
-  #hud { font-size: 12px; padding: 6px 10px; line-height: 1.4; }
+  #hud { font-size: 12px; padding: 8px 12px; line-height: 1.45; }
 }
 #touchcontrols .steerzone { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
-#touchcontrols .cluster { position: absolute; right: calc(14px + env(safe-area-inset-right));
-                          bottom: calc(14px + env(safe-area-inset-bottom));
-                          display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
-                          pointer-events: none; z-index: 10; /* buttons above the steer zone */ }
-#touchcontrols .tbtn { font: bold 13px "Courier New", monospace; color: #cef;
-                       background: rgba(10,16,40,0.75); border: 1px solid #3a6; border-radius: 12px;
-                       padding: 10px 16px; min-width: 76px; min-height: 48px;
-                       pointer-events: auto; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
-#touchcontrols .tbtn.context { min-width: 160px; min-height: 64px; font-size: 16px; border-color: #6cf; }
+#touchcontrols .cluster {
+  position: absolute; right: calc(14px + env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+  pointer-events: none; z-index: 10; /* buttons above the steer zone */
+}
+#touchcontrols .tbtn {
+  font: 800 13px var(--font-display); letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  padding: 10px 16px; min-width: 76px; min-height: 48px;
+  pointer-events: auto; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#touchcontrols .tbtn.context { min-width: 160px; min-height: 64px; font-size: 16px; border-color: var(--accent-dim); }
 #touchcontrols .tbtn.disabled { opacity: 0.5; }
-#touchcontrols .tbtn:active { background: rgba(60,120,200,0.5); }
+#touchcontrols .tbtn:active { background: rgba(255, 217, 138, 0.22); transform: scale(0.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  #hud .row.warn:not(.hidden),
+  #ui .marker.pop {
+    animation: none !important;
+  }
+  #hud .row.status,
+  #hud .row.status.hidden,
+  #controls,
+  #controls.hidden,
+  #mutebtn,
+  #touchcontrols .tbtn {
+    transition-duration: 1ms !important;
+  }
+}

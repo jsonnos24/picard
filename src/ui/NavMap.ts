@@ -67,7 +67,7 @@ export class NavMap {
     this.hit.length = 0;
     const proj = projectSystem(this.bodies, w, h, 28 * k, 24 * k);
     // Orbit rings first — they're what makes it read as a solar system.
-    c.strokeStyle = "rgba(140, 170, 220, 0.22)";
+    c.strokeStyle = "rgba(255, 217, 138, 0.18)";
     c.lineWidth = 1 * k;
     for (const r of proj.rings) {
       c.beginPath();
@@ -79,12 +79,12 @@ export class NavMap {
       const { px, py } = proj.points[i];
       const dotR = (b.kind === "star" ? 12 : b.kind === "moon" ? 4 : 7) * k;
       c.fillStyle =
-        b.name === this.target ? "#6f6" : "#" + b.color.toString(16).padStart(6, "0");
+        b.name === this.target ? "#7fd97f" : "#" + b.color.toString(16).padStart(6, "0");
       c.beginPath();
       c.arc(px, py, dotR, 0, Math.PI * 2);
       c.fill();
-      c.fillStyle = "#9cf";
-      c.font = `${11 * k}px monospace`;
+      c.fillStyle = "#ffd98a";
+      c.font = `${11 * k}px ui-monospace, monospace`;
       // Moons label above their dot so they don't collide with the planet's.
       const ly = b.kind === "moon" ? py - dotR - 6 * k : py + dotR + 14 * k;
       c.fillText(b.name, px - 12 * k, ly);
@@ -92,7 +92,7 @@ export class NavMap {
     }
     // ship marker
     const s = proj.project(this.shipPos.x, this.shipPos.z);
-    c.fillStyle = "#ff6";
+    c.fillStyle = "#ffd98a";
     c.fillRect(s.px - 3 * k, s.py - 3 * k, 6 * k, 6 * k);
   }
 

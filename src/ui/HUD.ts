@@ -62,15 +62,14 @@ export class HUD {
       this.values.set(label, val);
     }
     for (const [key, className] of [
-      ["lightspeed", "row warp"],
-      ["sling", "row warp"],
-      ["assist", "row warp"],
-      ["warning", "row warn"],
-      ["hint", "row hint"],
+      ["lightspeed", "row status warp"],
+      ["sling", "row status warp"],
+      ["assist", "row status warp"],
+      ["warning", "row status warn"],
+      ["hint", "row status hint"],
     ] as const) {
       const row = document.createElement("div");
-      row.className = className;
-      row.style.display = "none";
+      row.className = `${className} hidden`;
       this.el.appendChild(row);
       this.status.set(key, row);
     }
@@ -86,7 +85,15 @@ export class HUD {
     this.marker.style.left = `${x * 100}%`;
     this.marker.style.top = `${y * 100}%`;
     const text = onScreen ? `⊕ ${label}` : `➤ ${label}`;
-    if (this.marker.textContent !== text) this.marker.textContent = text;
+    if (this.marker.textContent !== text) {
+      this.marker.textContent = text;
+      // Retrigger the scale-pop on every label/state change (target swap,
+      // on-screen/off-screen flip) by removing then re-adding the class —
+      // forces a reflow so the CSS animation restarts instead of no-op-ing.
+      this.marker.classList.remove("pop");
+      void this.marker.offsetWidth;
+      this.marker.classList.add("pop");
+    }
   }
 
   hideMarker(): void {
@@ -101,8 +108,9 @@ export class HUD {
   private setStatus(key: string, text: string | null): void {
     const el = this.status.get(key)!;
     const show = text !== null;
-    const display = show ? "" : "none";
-    if (el.style.display !== display) el.style.display = display;
+    // Class toggle (not per-frame style writes) drives the CSS fade/slide;
+    // only touch the DOM when the shown/hidden state actually changes.
+    if (el.classList.contains("hidden") === show) el.classList.toggle("hidden", !show);
     if (show && el.textContent !== text) el.textContent = text;
   }
 
