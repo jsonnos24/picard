@@ -3,16 +3,89 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
-    <title>Galaxy Spaceship Simulator</title>
+    <title>PICARD</title>
+    <meta name="theme-color" content="#070b18" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23070b18'/%3E%3Cellipse cx='32' cy='37' rx='26' ry='7' fill='none' stroke='%23ffd98a' stroke-width='3'/%3E%3Ccircle cx='29' cy='27' r='13' fill='%23ffd98a'/%3E%3Ccircle cx='55' cy='35' r='3' fill='%23e04a3f'/%3E%3C/svg%3E"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PICARD" />
+    <link
+      rel="apple-touch-icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23070b18'/%3E%3Cellipse cx='32' cy='37' rx='26' ry='7' fill='none' stroke='%23ffd98a' stroke-width='3'/%3E%3Ccircle cx='29' cy='27' r='13' fill='%23ffd98a'/%3E%3Ccircle cx='55' cy='35' r='3' fill='%23e04a3f'/%3E%3C/svg%3E"
+    />
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #070b18; }
       #app { position: relative; width: 100vw; height: 100vh; }
       canvas { display: block; touch-action: none; }
+
+      /* ---- Splash: purely cosmetic, pre-JS-paint overlay. Never gates ---- */
+      /* input or audio — it sits above an already-running game and fades on  */
+      /* first real input or ~2.5s, whichever comes first (see main.ts).     */
+      #splash {
+        position: absolute; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 10px; background: #070b18; color: #ffd98a;
+        pointer-events: none; opacity: 1;
+        transition: opacity 300ms ease-out;
+      }
+      #splash.fade-out { opacity: 0; }
+      #splash .ornament { position: relative; width: 96px; height: 96px; margin-bottom: 4px; }
+      #splash .ornament .ring {
+        position: absolute; left: 50%; top: 58%; width: 108px; height: 30px;
+        margin: -15px 0 0 -54px; border: 3px solid #ffd98a; border-radius: 50%;
+        transform: rotate(-10deg); opacity: 0.85;
+      }
+      #splash .ornament .planet {
+        position: absolute; left: 50%; top: 42%; width: 52px; height: 52px;
+        margin: -26px 0 0 -26px; border-radius: 50%; background: #ffd98a;
+      }
+      #splash .ornament .moon {
+        position: absolute; left: 78%; top: 62%; width: 8px; height: 8px;
+        margin: -4px 0 0 -4px; border-radius: 50%; background: #e04a3f;
+      }
+      #splash .wordmark {
+        margin: 0; font: 800 clamp(2.25rem, 9vw, 5rem)/1 -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.08em; text-transform: uppercase; color: #ffd98a; text-align: center;
+      }
+      #splash .tagline {
+        margin: 0; font: 500 clamp(0.85rem, 2.4vw, 1.05rem)/1.4 -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.02em; color: rgba(255, 217, 138, 0.75); text-align: center;
+      }
+      #splash .hint {
+        margin-top: 18px; font: 700 0.75rem/1 -apple-system, "Segoe UI", system-ui, sans-serif;
+        letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 217, 138, 0.5);
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        #splash .ornament .ring { animation: splash-spin 10s linear infinite; }
+        #splash .hint { animation: splash-hint-fade 1.8s ease-in-out infinite; }
+      }
+      @keyframes splash-spin {
+        from { transform: rotate(-10deg); }
+        to { transform: rotate(350deg); }
+      }
+      @keyframes splash-hint-fade {
+        0%, 100% { opacity: 0.35; }
+        50% { opacity: 0.9; }
+      }
     </style>
     <link rel="stylesheet" href="/src/ui/ui.css" />
   </head>
   <body>
-    <div id="app"><canvas id="view"></canvas><div id="ui"></div></div>
+    <div id="app">
+      <canvas id="view"></canvas>
+      <div id="ui"></div>
+      <div id="splash">
+        <div class="ornament"><div class="ring"></div><div class="planet"></div><div class="moon"></div></div>
+        <h1 class="wordmark">PICARD</h1>
+        <p class="tagline">a pocket tour of the solar system</p>
+        <p class="hint">tap or press any key</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
