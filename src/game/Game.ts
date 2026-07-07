@@ -588,6 +588,13 @@ export class Game {
           this.sling = s;
           this.slingHeldPrev = false;
           this.rig.resetLook();
+          // You made it — the trip is over, so the course resets. J now means
+          // "jump away" (capturedAtTarget() treats a no-target capture as an
+          // arrival, so the LAND verb and TARGET REACHED HUD are unaffected).
+          if (body.name === this.navmap.targetName) {
+            this.navmap.clearTarget();
+            this.showNotice(`ARRIVED AT ${body.name.toUpperCase()}`);
+          }
           break;
         }
       }
@@ -627,6 +634,9 @@ export class Game {
         this.phase = transition(this.phase, { kind: "landed", body: pb.body.name });
         this.assistOn = false;
         this.ship.throttle = 0;
+        // Landing on the target is arrival too — reset the course so the
+        // next warp doesn't aim at the ground you're parked on.
+        if (pb.body.name === this.navmap.targetName) this.navmap.clearTarget();
         const r = toRender(this.fo, this.ship.position);
         const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
         this.dust.puff(new THREE.Vector3(r.x, r.y, r.z), up, kind === "soft" ? 0.5 : 1);
@@ -909,7 +919,15 @@ export class Game {
       );
     }
 
-    this.navmap.update(this.ship.position, this.ship.velocity);
+    // The body we're "at" (captured in its ring, landed on it, or walking
+    // on it) can't be set as a warp destination — the map shows YOU ARE HERE.
+    const hereName =
+      this.sling.kind === "captured"
+        ? this.sling.bodyName
+        : this.phase.kind === "landed" || this.phase.kind === "onFoot"
+          ? this.framePrimary.body.name
+          : null;
+    this.navmap.update(this.ship.position, this.ship.velocity, hereName);
     const contextVerb = contextAction({
       phaseKind: this.phase.kind,
       slingCaptured: this.sling.kind === "captured",

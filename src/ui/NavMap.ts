@@ -16,6 +16,8 @@ export class NavMap {
   private readonly ctx: CanvasRenderingContext2D;
   private open = false;
   private target: string | null = null;
+  private hereName: string | null = null; // body we're captured at / landed on
+  private hereSelected = false; // player tapped the body they're already at
   private shipPos = new Vec3();
   private shipVel = new Vec3();
   private readonly hit: { name: string; x: number; y: number }[] = [];
@@ -119,6 +121,16 @@ export class NavMap {
   setTarget(name: string): void {
     this.target = name;
   }
+  // Arrival resets the course (Game calls this on reaching the target) —
+  // otherwise "warp away" keeps aiming at the planet you're already at.
+  clearTarget(): void {
+    this.target = null;
+    this.hereSelected = false;
+    if (this.open) {
+      this.draw();
+      this.renderInfo();
+    }
+  }
 
   // M toggles open/closed; the closing half of that routes through the exact
   // same close() as the × button, Esc, and the backdrop click, so there's
@@ -144,9 +156,10 @@ export class NavMap {
     this.el.classList.remove("open");
   }
 
-  update(shipPos: Vec3, shipVel: Vec3): void {
+  update(shipPos: Vec3, shipVel: Vec3, hereName: string | null = null): void {
     this.shipPos = shipPos;
     this.shipVel = shipVel;
+    this.hereName = hereName;
     if (this.open) {
       this.draw();
       this.renderInfo();
@@ -154,6 +167,14 @@ export class NavMap {
   }
 
   private renderInfo(): void {
+    // Inspecting the body you're at: name + YOU ARE HERE, no course to set.
+    if (this.hereSelected && this.hereName) {
+      const text = `${this.hereName.toUpperCase()} — YOU ARE HERE`;
+      if (this.infoLines.textContent !== text) this.infoLines.textContent = text;
+      this.setCourseBtn.classList.add("hidden");
+      if (this.infoEl.classList.contains("hidden")) this.infoEl.classList.remove("hidden");
+      return;
+    }
     const body = this.target ? this.bodies.find((b) => b.name === this.target) : undefined;
     if (!body) {
       if (!this.infoEl.classList.contains("hidden")) this.infoEl.classList.add("hidden");
@@ -164,6 +185,7 @@ export class NavMap {
     const etaSec = etaSeconds(distToDrop, this.shipVel.length());
     const text = bodyInfoLines(body, distanceM, etaSec).join("  ·  ");
     if (this.infoLines.textContent !== text) this.infoLines.textContent = text;
+    this.setCourseBtn.classList.remove("hidden");
     if (this.infoEl.classList.contains("hidden")) this.infoEl.classList.remove("hidden");
   }
 
@@ -222,7 +244,14 @@ export class NavMap {
       }
     }
     if (best) {
-      this.target = best;
+      if (best === this.hereName) {
+        // Can't set course for the body you're already at — show its info
+        // with a YOU ARE HERE line instead of arming a zero-length warp.
+        this.hereSelected = true;
+      } else {
+        this.target = best;
+        this.hereSelected = false;
+      }
       this.draw();
       this.renderInfo();
     }

@@ -263,6 +263,7 @@
   cursor: pointer;
   transition: background var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
 }
+#navmap .setcourse.hidden { display: none; }
 #navmap .setcourse:hover { background: var(--accent-dim); }
 #navmap .setcourse:active { transform: scale(0.96); }
 #ui .marker {
