@@ -7,19 +7,33 @@ import * as THREE from "three";
 // (relative size ~1.0) land close to the old look; medium/large scale up
 // from there.
 export const STAR_SIZE_BASE = 1.5e6;
-// A fixed screen-scale constant for the perspective size falloff. Stars sit
-// at a near-fixed distance (the starfield radius, 5e8) relative to any
-// in-system camera move, so this doesn't need to track window resizes the
-// way THREE.PointsMaterial's per-frame "scale" uniform does — the dominant
-// term is 1/-mvPosition.z, which barely changes as the camera roams the
-// solar system.
-const RESOLUTION_SCALE = 400.0;
+// The perspective size falloff's screen-scale term mirrors THREE's own
+// PointsMaterial sizeAttenuation convention: `scale = drawingBufferHeight *
+// 0.5` (see node_modules/three/src/renderers/webgl/WebGLMaterials.js
+// refreshUniformsPoints, folded together with its separate `size *=
+// pixelRatio` term — drawingBufferHeight already bakes in devicePixelRatio,
+// so combining them into one uniform is arithmetically identical). Passed
+// in as a uniform, not a constant, so stars keep a consistent apparent size
+// across window resizes and DPR instead of only scaling with 1/z. Set at
+// material creation and refreshed by Renderer.resize().
+//
+// STAR_SIZE_BASE above was picked so that at a reference 800px-tall, DPR-1
+// viewport (uScale = 800 * 0.5 = 400, matching the old fixed constant this
+// replaces) the on-screen result is unchanged from before this uniform
+// existed.
+//
+// Default/initial value for uScale before the first Renderer.resize() call
+// sets the real one — same reference viewport as above so there's no visible
+// pop on the first frame.
+const DEFAULT_SCALE = 400.0;
 
 // Twinkle angular rate (radians/sec) — see brief: alpha oscillates with
 // sin(uTime * rate + phase).
 const TWINKLE_RATE = 1.5;
 
 const vertexShader = /* glsl */ `
+uniform float uScale;
+
 attribute float aSize;
 attribute vec3 aColor;
 attribute float aPhase;
@@ -42,7 +56,7 @@ void main() {
 
   float atten = 1.0;
   if (isPerspectiveMatrix(projectionMatrix)) {
-    atten = ${RESOLUTION_SCALE.toFixed(1)} / -mvPosition.z;
+    atten = uScale / -mvPosition.z;
   }
   gl_PointSize = aSize * ${STAR_SIZE_BASE.toFixed(1)} * atten;
 
@@ -86,6 +100,7 @@ export function createStarfieldMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
+      uScale: { value: DEFAULT_SCALE },
     },
     vertexShader,
     fragmentShader,

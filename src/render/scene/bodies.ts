@@ -26,6 +26,12 @@ const BAND_SEED = 918273;
 export interface Starfield {
   group: THREE.Group;
   update(tSec: number): void;
+  // Mirrors THREE.PointsMaterial's own sizeAttenuation "scale" uniform
+  // convention: pass drawingBufferHeight (CSS height * devicePixelRatio, i.e.
+  // the renderer's actual framebuffer height) and this derives uScale =
+  // drawingBufferHeight * 0.5, so stars keep a consistent apparent size
+  // across window resizes and DPR. Call on init and on every resize.
+  setDrawingBufferHeight(height: number): void;
 }
 
 // Two nebula hues along the band, alternated; canvas radial-gradient
@@ -144,6 +150,9 @@ export function createStarfield(): Starfield {
     group,
     update(tSec: number): void {
       material.uniforms.uTime.value = tSec;
+    },
+    setDrawingBufferHeight(height: number): void {
+      material.uniforms.uScale.value = height * 0.5;
     },
   };
 }

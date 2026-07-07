@@ -31,6 +31,14 @@ export class Renderer {
     this.resize();
   }
 
+  // CSS height * the pixel ratio actually in effect (post-dprCap) — i.e. the
+  // renderer's real framebuffer height, matching THREE's own
+  // getDrawingBufferSize() convention that PointsMaterial's sizeAttenuation
+  // scale is built from.
+  private drawingBufferHeight(): number {
+    return window.innerHeight * Math.min(window.devicePixelRatio, this.dprCap);
+  }
+
   // Elapsed seconds since start — mirrors the t/1000 already handed to
   // gravityRings.update so the twinkle stays in lockstep with the frame
   // clock rather than drifting on its own timer.
@@ -47,6 +55,7 @@ export class Renderer {
     // Re-applied on every resize: some browsers report a changed DPR after a
     // window drags between displays, and setSize alone doesn't pick it up.
     this.gl.setPixelRatio(Math.min(window.devicePixelRatio, this.dprCap));
+    this.starfield.setDrawingBufferHeight(this.drawingBufferHeight());
   }
 
   render(): void {
