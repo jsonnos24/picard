@@ -19,6 +19,10 @@ export interface ChaseParams {
   surfaceMargin: number; // m — hard floor: camera never dips inside surface+margin
   posSmooth: number; // 1/s exponential smoothing rates
   lookSmooth: number;
+  overheadScale: number; // landing view: camera height = altitude × this…
+  overheadMin: number; // …clamped between these two (m)
+  overheadMax: number;
+  overheadSide: number; // m of lateral offset so the shot isn't perfectly concentric
 }
 
 export const DEFAULT_CHASE_PARAMS: ChaseParams = {
@@ -34,6 +38,10 @@ export const DEFAULT_CHASE_PARAMS: ChaseParams = {
   surfaceMargin: 4,
   posSmooth: 6,
   lookSmooth: 10,
+  overheadScale: 1.0,
+  overheadMin: 40,
+  overheadMax: 220,
+  overheadSide: 12,
 };
 
 export interface SlingView {
@@ -49,12 +57,14 @@ export interface GroundView {
   radius: number;
   up: Vec3; // local planet-up at the ship (unit)
   altitude: number; // m above the surface
+  landing?: boolean; // descending to land: switch to the bird's-eye view
 }
 
 export interface ChaseFrame {
   camPos: Vec3;
   lookAt: Vec3;
   groundness: number; // 0 in space → 1 on the pad; callers blend camera-up with it
+  overhead: number; // 1 in the landing bird's-eye view; callers re-aim camera-up
 }
 
 export function chaseFrame(
@@ -84,9 +94,22 @@ export function chaseFrame(
   }
 
   let groundness = 0;
+  let overhead = 0;
+  if (ground && ground.landing && !sling) {
+    // Landing bird's-eye: hover above the ship along planet-up, aimed straight
+    // down at it — the pad and touchdown point fill the frame as you descend.
+    overhead = 1;
+    const h = Math.max(p.overheadMin, Math.min(p.overheadMax, ground.altitude * p.overheadScale));
+    // Small lateral offset (along the tangent-projected nose) keeps the shot
+    // from being perfectly concentric and gives the up-vector a reference.
+    const tangent = fwd.sub(ground.up.scale(fwd.dot(ground.up)));
+    const side = tangent.length() > 1e-6 ? tangent.normalize() : orthogonalTo(ground.up);
+    camPos = shipPos.add(ground.up.scale(h)).add(side.scale(p.overheadSide));
+    lookAt = shipPos;
+  }
   if (ground) {
     groundness = Math.max(0, Math.min(1, 1 - ground.altitude / p.groundAltRef));
-    if (groundness > 0) {
+    if (groundness > 0 && !overhead) {
       // Lift the camera so it never frames the ship from below the horizon,
       // and pull the aim point down toward the ship so the rocket stays framed.
       const off = camPos.sub(shipPos);
@@ -100,7 +123,13 @@ export function chaseFrame(
     const minR = ground.radius + p.surfaceMargin;
     if (rel.length() < minR) camPos = ground.center.add(rel.normalize().scale(minR));
   }
-  return { camPos, lookAt, groundness };
+  return { camPos, lookAt, groundness, overhead };
+}
+
+// Any unit vector perpendicular to v (for degenerate tangent fallbacks).
+function orthogonalTo(v: Vec3): Vec3 {
+  const ref = Math.abs(v.x) > 0.9 ? new Vec3(0, 0, 1) : new Vec3(1, 0, 0);
+  return ref.sub(v.scale(ref.dot(v))).normalize();
 }
 
 // Exponential smoothing toward a target — frame-rate independent.

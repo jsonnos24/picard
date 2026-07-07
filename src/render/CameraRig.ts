@@ -15,15 +15,21 @@ export class CameraRig {
   private lookYaw = 0;
   private lookPitch = 0;
   private currentFov = FOV_BASE;
-  private chasePos: Vec3 | null = null; // smoothed chase state
-  private chaseLook: Vec3 | null = null;
+  // Smoothed chase state, stored SHIP-RELATIVE: at warp the ship covers
+  // kilometers per frame, and smoothing absolute positions lagged the camera
+  // v/rate (~25 km) behind. Offsets make translation lag-free — smoothing
+  // shapes the shot, not the ship's motion — and are immune to floating-
+  // origin rebases by construction.
+  private chaseOffset: Vec3 | null = null; // camera − ship
+  private lookOffset: Vec3 | null = null; // aim point − ship
+  private overheadBlend = 0; // eased 0..1 toward the landing bird's-eye up
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
   toggleMode(): void {
     this.mode = this.mode === "chase" ? "cockpit" : "chase";
-    this.chasePos = null; // re-seed the smoothing on next chase frame
-    this.chaseLook = null;
+    this.chaseOffset = null; // re-seed the smoothing on next chase frame
+    this.lookOffset = null;
   }
 
   toggleDownView(): void {
@@ -42,15 +48,6 @@ export class CameraRig {
     this.lookPitch = 0;
   }
 
-  // The floating origin rebases render space in discrete jumps (threshold
-  // 10 km). chasePos/chaseLook are smoothed RENDER-space positions, so each
-  // jump must shift them too — otherwise the camera is suddenly kilometers
-  // from the ship (often on the far side) and the shot flips ~180° once per
-  // rebase, every few frames at cruise speed.
-  shiftWorld(offsetDelta: Vec3): void {
-    if (this.chasePos) this.chasePos = this.chasePos.sub(offsetDelta);
-    if (this.chaseLook) this.chaseLook = this.chaseLook.sub(offsetDelta);
-  }
 
   applyLook(camera: THREE.PerspectiveCamera): void {
     camera.rotateY(this.lookYaw);
@@ -104,23 +101,42 @@ export class CameraRig {
       sling,
       ground,
     );
-    this.chasePos = this.chasePos ? smoothToward(this.chasePos, frame.camPos, 6, dt) : frame.camPos;
-    this.chaseLook = this.chaseLook
-      ? smoothToward(this.chaseLook, frame.lookAt, 10, dt)
-      : frame.lookAt;
-    this.camera.position.set(this.chasePos.x, this.chasePos.y, this.chasePos.z);
+    const camOffTarget = frame.camPos.sub(ship);
+    const lookOffTarget = frame.lookAt.sub(ship);
+    this.chaseOffset = this.chaseOffset
+      ? smoothToward(this.chaseOffset, camOffTarget, 6, dt)
+      : camOffTarget;
+    this.lookOffset = this.lookOffset
+      ? smoothToward(this.lookOffset, lookOffTarget, 10, dt)
+      : lookOffTarget;
+    const camPos = ship.add(this.chaseOffset);
+    const lookAt = ship.add(this.lookOffset);
+    this.camera.position.set(camPos.x, camPos.y, camPos.z);
+    // Ease the bird's-eye blend so the up-vector swings instead of snapping
+    // when the descending phase begins/ends.
+    const blendK = 1 - Math.exp(-4 * Math.max(0, dt));
+    this.overheadBlend += (frame.overhead - this.overheadBlend) * blendK;
     // While slung, the swing-plane normal keeps the orbit cam from rolling —
     // ship-up spins with the rail tangent every lap. Near the ground,
-    // planet-up keeps the horizon level; in space, ship-up.
+    // planet-up keeps the horizon level; in space, ship-up. In the landing
+    // bird's-eye, up must be a surface tangent (the view axis IS planet-up).
     if (sling) {
       this.camera.up.set(sling.normal.x, sling.normal.y, sling.normal.z);
+    } else if (ground && this.overheadBlend > 0.01) {
+      const gu = new THREE.Vector3(ground.up.x, ground.up.y, ground.up.z);
+      let tangent = fwd3.clone().sub(gu.clone().multiplyScalar(fwd3.dot(gu)));
+      if (tangent.lengthSq() < 1e-9) tangent = new THREE.Vector3(1, 0, 0).sub(gu.clone().multiplyScalar(gu.x));
+      tangent.normalize();
+      const pu = new THREE.Vector3(ground.up.x, ground.up.y, ground.up.z);
+      const base = up3.clone().lerp(pu, frame.groundness).normalize();
+      this.camera.up.copy(base.lerp(tangent, this.overheadBlend).normalize());
     } else if (ground && frame.groundness > 0) {
       const pu = new THREE.Vector3(ground.up.x, ground.up.y, ground.up.z);
       this.camera.up.copy(up3.lerp(pu, frame.groundness).normalize());
     } else {
       this.camera.up.copy(up3);
     }
-    this.camera.lookAt(this.chaseLook.x, this.chaseLook.y, this.chaseLook.z);
+    this.camera.lookAt(lookAt.x, lookAt.y, lookAt.z);
     // Free-look glances around from the chase shot (mouse under pointer
     // lock, or the touch look zone) — applied after lookAt so it's an
     // offset on the framed shot, same as cockpit/onFoot.

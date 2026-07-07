@@ -808,12 +808,9 @@ export class Game {
     );
 
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
-    const prevOffset = this.fo.offset;
+    // Rebases are invisible to the camera: the rig smooths ship-relative
+    // offsets, which don't change when render space recenters.
     this.fo = rebase(this.fo, focusPos);
-    if (this.fo.offset !== prevOffset) {
-      // Render space jumped — keep the camera rig's smoothed state in step.
-      this.rig.shiftWorld(this.fo.offset.sub(prevOffset));
-    }
     updateBodies(this.views, this.fo, dt, t / 1000, this.renderer.camera.position);
     this.gravityRings.update(
       this.fo,
@@ -889,6 +886,8 @@ export class Game {
         radius: pb.body.radius,
         up: pb.up,
         altitude: pb.altitude,
+        // Bird's-eye landing view for the whole descent, pad to touchdown.
+        landing: this.phase.kind === "descending",
       };
       const chaseOffset = chaseShake(
         {

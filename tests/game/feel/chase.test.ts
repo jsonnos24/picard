@@ -142,3 +142,44 @@ describe("smoothToward", () => {
     expect(smoothToward(cur, target, 6, -1).sub(cur).length()).toBe(0);
   });
 });
+
+describe("landing bird's-eye view", () => {
+  const groundUp = new Vec3(0, 0, 1);
+  const mkGround = (altitude: number, landing: boolean) => ({
+    center: shipPos.sub(groundUp.scale(1000 + altitude)),
+    radius: 1000,
+    up: groundUp,
+    altitude,
+    landing,
+  });
+
+  it("hovers above the ship along planet-up, aimed at the ship", () => {
+    const f = chaseFrame(shipPos, fwd, up, 50, null, mkGround(100, true), P);
+    const rel = f.camPos.sub(shipPos);
+    expect(rel.dot(groundUp)).toBeGreaterThan(P.overheadMin * 0.9); // overhead, not behind
+    const lateral = rel.sub(groundUp.scale(rel.dot(groundUp)));
+    expect(lateral.length()).toBeLessThan(rel.dot(groundUp) * 0.5); // mostly straight up
+    expect(f.lookAt.sub(shipPos).length()).toBeLessThan(1); // aimed at the ship
+    expect(f.overhead).toBe(1);
+  });
+
+  it("height tracks altitude and clamps at both ends", () => {
+    const relUp = (alt: number) =>
+      chaseFrame(shipPos, fwd, up, 50, null, mkGround(alt, true), P).camPos.sub(shipPos).dot(groundUp);
+    expect(relUp(10)).toBeCloseTo(P.overheadMin, 4); // floor
+    expect(relUp(100)).toBeCloseTo(100 * P.overheadScale, 4); // proportional
+    expect(relUp(10000)).toBeCloseTo(P.overheadMax, 4); // ceiling
+  });
+
+  it("no overhead framing without the landing flag", () => {
+    const f = chaseFrame(shipPos, fwd, up, 50, null, mkGround(100, false), P);
+    expect(f.overhead).toBe(0);
+    expect(f.camPos.sub(shipPos).dot(fwd)).toBeLessThan(0); // normal behind-ship shot
+  });
+
+  it("landing view still respects the surface hard floor", () => {
+    const g = mkGround(2, true);
+    const f = chaseFrame(shipPos, fwd, up, 5, null, g, P);
+    expect(f.camPos.sub(g.center).length()).toBeGreaterThanOrEqual(g.radius + P.surfaceMargin - 1e-6);
+  });
+});
