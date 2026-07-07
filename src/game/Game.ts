@@ -32,7 +32,7 @@ import { Vec3 } from "../sim/Vec3";
 import { FIXED_DT } from "../sim/constants";
 import { Phase, initialPhase, transition, phaseLabel } from "../sim/GameState";
 import { createInputManager, InputManager } from "../sim/input/InputManager";
-import { selectPrimaryBody } from "./primaryBody";
+import { selectPrimaryBody, PrimaryBody } from "./primaryBody";
 import { thrustDirection } from "./attitude";
 import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
@@ -69,6 +69,14 @@ import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
 import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
 import { createAstronaut3D } from "../render/scene/astronaut";
+import {
+  FrameSnapshot,
+  SnapshotCues,
+  buildSnapshot,
+  idleSnapshot,
+  idleCues,
+} from "./feel/snapshot";
+import { SAFE_VSPEED } from "./landing";
 
 export class Game {
   private readonly renderer: Renderer;
@@ -113,6 +121,14 @@ export class Game {
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
   private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void };
+  // The ship's primary body, cached once per sim step (item 3): selectPrimaryBody
+  // was being called ~5x/frame with an identical result each time.
+  private framePrimary: PrimaryBody;
+  // One-shot cues set at their detection site during a frame and consumed
+  // (then cleared) when that frame's FrameSnapshot is built.
+  private pendingCues: SnapshotCues = idleCues();
+  snapshot: FrameSnapshot = idleSnapshot();
+  prevSnapshot: FrameSnapshot = idleSnapshot();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -134,6 +150,7 @@ export class Game {
       earth.position.add(new Vec3(0, earth.radius + this.padHeight, 0)),
     );
     this.ship.orientation = new Vec3(0, 1, 0);
+    this.framePrimary = selectPrimaryBody(this.ship.position, this.bodies);
 
     window.addEventListener("resize", () => this.renderer.resize());
     this.hud = new HUD(document.getElementById("ui")!);
@@ -177,6 +194,9 @@ export class Game {
       if (oy) move.add(fwd.clone().multiplyScalar(oy));
       const walkDir = new Vec3(move.x, move.y, move.z);
       const jump = this.input.isActive("jump");
+      // stepAstronaut (sim, untouched) only actually jumps when grounded —
+      // mirror that condition here rather than reach into the sim module.
+      if (jump && this.astronaut.onGround) this.pendingCues.jumped = true;
       this.astronaut = stepAstronaut(this.astronaut, pb.body, walkDir, jump, dt);
       return; // skip ship integration this step
     }
@@ -281,7 +301,10 @@ export class Game {
         this.sling = fling.state;
         this.ship.velocity = fling.velocity;
         this.setOrient(fling.velocity.normalize());
-        if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2; // chain reward
+        if (fling.snapped) {
+          this.lsGraceUntil = this.missionElapsed + 2; // chain reward
+          this.pendingCues.snapped = true;
+        }
         this.slingHeldPrev = false;
         return;
       }
@@ -302,7 +325,13 @@ export class Game {
       this.setOrient(r.vel.normalize());
       this.angular = zeroAngular();
       this.slingHeldPrev = held;
-      this.phase = { kind: "space" }; // a swing is a space activity, however low it dips
+      this.refreshPrimary();
+      // A swing is a space activity, however low it dips — capture can flip
+      // the phase to "descending" the same frame it begins (low over a
+      // landable body); validated via transition() rather than a raw write.
+      // Most frames it's already "space" (a same-kind move the ALLOWED table
+      // doesn't need to know about), so only call through when it's not.
+      if (this.phase.kind !== "space") this.phase = transition(this.phase, { kind: "space" });
       return;
     }
 
@@ -343,8 +372,8 @@ export class Game {
         // the planet", never "into it".
         this.ship.velocity = Vec3.zero();
         this.ship.throttle = 0;
-        const pb = selectPrimaryBody(this.ship.position, this.bodies);
-        this.setOrient(pb.up);
+        // Ship hasn't moved yet this step — the cached primary is current.
+        this.setOrient(this.framePrimary.up);
         this.preBrakeOrient = null;
       } else if (r.command === "release") {
         // Let go mid-burn: engine off, restore the pre-brake heading.
@@ -392,7 +421,8 @@ export class Game {
 
     // Landed hold: pin to the surface until thrust can beat gravity.
     // Must NOT run during Descending so Moon crash detection reads real velocity.
-    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    this.refreshPrimary(); // ship moved this step (Verlet, above) — refresh the cache
+    const pb = this.framePrimary;
     const thrustMag = shipThrustAccel(this.ship).length();
     if (this.phase.kind !== "descending") {
       if (pb.altitude < this.padHeight && shouldHoldOnSurface(thrustMag, surfaceGravity(pb.body))) {
@@ -420,14 +450,23 @@ export class Game {
         this.ship.throttle = 0;
         const r = toRender(this.fo, this.ship.position);
         this.dust.puff(new THREE.Vector3(r.x, r.y, r.z));
+        // No separate soft/hard verdict exists in evaluateTouchdown — derive
+        // it from a gentler inner threshold than the crash boundary.
+        this.pendingCues.touchdownKind = vUp >= -SAFE_VSPEED / 2 ? "soft" : "hard";
       } else if (result === "crash") {
+        this.pendingCues.crashed = true;
         this.resetToPad();
       }
     }
   }
 
+  private refreshPrimary(): void {
+    this.framePrimary = selectPrimaryBody(this.ship.position, this.bodies);
+  }
+
   private updatePhaseFromAltitude(): void {
-    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    this.refreshPrimary();
+    const pb = this.framePrimary;
     this.phase = nextPhase({
       phase: this.phase,
       altitude: pb.altitude,
@@ -450,7 +489,9 @@ export class Game {
   // cancelling sideways drift — one thrust command handles a vertical drop and
   // a fast flyby arrival alike, easing to a gentle, upright touchdown.
   private applyLandingAssist(): void {
-    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    // Called before this step's Verlet integration — the cached primary
+    // still reflects the ship's (unmoved-this-tick) current position.
+    const pb = this.framePrimary;
     const vUp = this.ship.velocity.dot(pb.up);
     const vHoriz = this.ship.velocity.sub(pb.up.scale(vUp));
     const gLocal = gravityAccel(this.ship.position, this.bodies).length();
@@ -506,6 +547,36 @@ export class Game {
       for (let i = 0; i < steps; i++) this.stepSim();
     }
 
+    // FrameSnapshot: this frame's digest for the later audio/vfx phases,
+    // built right after sim stepping. One-shot cues were set at their
+    // detection site inside stepSim above; consume them here and clear back
+    // to idle so they fire for exactly one frame.
+    const vUp = this.ship.velocity.dot(this.framePrimary.up);
+    const inSunBubble = this.ship.position.sub(this.sun.position).length() < this.sun.captureRadius;
+    this.prevSnapshot = this.snapshot;
+    this.snapshot = buildSnapshot({
+      phaseKind: this.phase.kind,
+      slingKind: this.sling.kind,
+      cruising: this.cruising,
+      lsBraking: this.lsBraking,
+      lsSeqPhase: this.lsSeq.phase,
+      tunnel: w.tunnel,
+      flash: w.flash,
+      engage: w.engage,
+      throttle: this.ship.throttle,
+      speed: this.ship.velocity.length(),
+      altitude: this.framePrimary.altitude,
+      verticalSpeed: vUp,
+      inSunBubble,
+      ringCapturedName: this.sling.kind === "captured" ? this.sling.bodyName : null,
+      breakawayHold: this.breakHold,
+      assistOn: this.assistOn,
+      navMapOpen: this.navmap.isOpen,
+      missionElapsed: this.missionElapsed,
+      cues: this.pendingCues,
+    });
+    this.pendingCues = idleCues();
+
     const focusPos = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.position : this.ship.position;
     this.fo = rebase(this.fo, focusPos);
     updateBodies(this.views, this.fo, this.renderer.camera.position);
@@ -523,9 +594,18 @@ export class Game {
     // lander stays visible so you can look back at it.
     this.shipGroup.visible = this.rig.mode === "chase" || this.phase.kind === "onFoot";
 
+    // The ship's primary is cached (this.framePrimary, refreshed in stepSim);
+    // on foot the relevant body is the astronaut's, a different position, so
+    // that one still needs a fresh lookup. Computed once, reused by both the
+    // camera code below and the speed-dust skim calc further down.
+    const focusPrimary =
+      this.phase.kind === "onFoot" && this.astronaut
+        ? selectPrimaryBody(this.astronaut.position, this.bodies)
+        : this.framePrimary;
+
     if (this.phase.kind === "onFoot" && this.astronaut) {
       const r = toRender(this.fo, this.astronaut.position);
-      const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
+      const pb = focusPrimary;
       const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
       const eye = new THREE.Vector3(r.x, r.y, r.z).add(up.clone().multiplyScalar(1.6));
       this.renderer.camera.position.copy(eye);
@@ -551,7 +631,7 @@ export class Game {
           bodyRadius: body.radius,
         };
       }
-      const pb = selectPrimaryBody(this.ship.position, this.bodies);
+      const pb = focusPrimary;
       const gc = toRender(this.fo, pb.body.position);
       const ground = {
         center: new Vec3(gc.x, gc.y, gc.z),
@@ -599,8 +679,7 @@ export class Game {
     );
     this.warpFx.update(this.renderer.camera.position, w.tunnel, w.flash);
     const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
-    const focusPb = selectPrimaryBody(focusPos, this.bodies);
-    const skim = skimIntensity(focusPb.altitude, focusVel.length());
+    const skim = skimIntensity(focusPrimary.altitude, focusVel.length());
     this.speedDust.update(focusVel, dt, this.renderer.camera.position, skim);
     this.updateHud();
     this.updateMarker();
@@ -609,7 +688,7 @@ export class Game {
   };
 
   private updateHud(): void {
-    const pb = selectPrimaryBody(this.ship.position, this.bodies);
+    const pb = this.framePrimary;
     const vUp = this.ship.velocity.dot(pb.up);
     let lightspeedEta: number | null = null;
     if (this.cruising && this.lsTargetName) {
@@ -720,13 +799,12 @@ export class Game {
     this.ship.orientation = new Vec3(0, 1, 0);
     this.quat = new THREE.Quaternion();
     this.angular = zeroAngular();
-    this.brake = idleBrake();
-    this.preBrakeOrient = null;
-    this.breakHold = 0;
     this.phase = initialPhase();
-    this.missionElapsed = 0;
+    // missionElapsed is the mission clock, not the attempt clock — it keeps
+    // counting up across a crash, so it's deliberately NOT reset here.
     this.tc = { ...this.tc, timeScale: 1 };
     this.assistOn = false;
+    this.rig.resetLook();
     const r = padReset();
     this.sling = r.sling;
     this.slingHeldPrev = r.slingHeldPrev;
@@ -736,6 +814,13 @@ export class Game {
     this.lsSeq = r.lsSeq;
     this.lsFree = r.lsFree;
     this.lsFreeDir = r.lsFreeDir;
+    this.lsGraceUntil = r.lsGraceUntil;
+    this.brake = r.brake;
+    this.preBrakeOrient = r.preBrakeOrient;
+    this.breakHold = r.breakHold;
+    this.notice = r.notice;
+    this.noticeUntil = r.noticeUntil;
+    this.refreshPrimary();
   }
 
   private showNotice(text: string): void {
@@ -806,7 +891,10 @@ export class Game {
       this.sling = fling.state;
       this.ship.velocity = fling.velocity;
       this.setOrient(fling.velocity.normalize());
-      if (fling.snapped) this.lsGraceUntil = this.missionElapsed + 2;
+      if (fling.snapped) {
+        this.lsGraceUntil = this.missionElapsed + 2;
+        this.pendingCues.snapped = true;
+      }
       this.slingHeldPrev = false;
     }
     if (decision === "freeJump") {
@@ -843,10 +931,12 @@ export class Game {
       this.astronaut.onGround = true;
       this.astronautGroup.visible = true;
       this.phase = transition(this.phase, { kind: "onFoot", body: this.phase.body });
+      this.pendingCues.disembarked = true;
     } else if (this.phase.kind === "onFoot" && this.astronaut) {
       this.astronaut = null;
       this.astronautGroup.visible = false;
       this.phase = transition(this.phase, { kind: "landed", body: this.phase.body });
+      this.pendingCues.boarded = true;
     }
   }
 
