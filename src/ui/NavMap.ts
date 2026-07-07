@@ -1,28 +1,95 @@
 import { Body } from "../sim/Body";
 import { Vec3 } from "../sim/Vec3";
 import { projectSystem } from "./mapProjection";
+import { etaSeconds } from "../sim/lightspeed";
+import { bodyInfoLines } from "./format";
 
 export class NavMap {
-  private readonly el: HTMLDivElement;
+  private readonly el: HTMLDivElement; // full-screen backdrop; click = close
+  private readonly panel: HTMLDivElement;
+  private readonly titleEl: HTMLDivElement;
+  private readonly closeBtn: HTMLButtonElement;
+  private readonly infoEl: HTMLDivElement;
+  private readonly infoLines: HTMLDivElement;
+  private readonly setCourseBtn: HTMLButtonElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private open = false;
   private target: string | null = null;
   private shipPos = new Vec3();
+  private shipVel = new Vec3();
   private readonly hit: { name: string; x: number; y: number }[] = [];
   private dpr = 1;
 
   constructor(root: HTMLElement, private readonly bodies: Body[]) {
     this.el = document.createElement("div");
     this.el.id = "navmap";
-    this.el.innerHTML = `<div class="title">NAV MAP — tap a body to target</div>`;
+    // Backdrop click (anywhere that isn't the panel) closes, same path as
+    // the × button / Esc / M toggle.
+    this.el.addEventListener("click", (e) => {
+      if (e.target === this.el) this.close();
+    });
+
+    this.panel = document.createElement("div");
+    this.panel.className = "panel";
+
+    this.titleEl = document.createElement("div");
+    this.titleEl.className = "title";
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    this.titleEl.textContent = coarse
+      ? "NAV MAP — tap a body to target"
+      : "NAV MAP — click a body to set course";
+
+    this.closeBtn = document.createElement("button");
+    this.closeBtn.className = "close";
+    this.closeBtn.type = "button";
+    this.closeBtn.textContent = "×";
+    this.closeBtn.setAttribute("aria-label", "Close nav map");
+    this.closeBtn.addEventListener("click", () => {
+      this.close();
+      this.closeBtn.blur(); // keep keyboard game input alive after the click
+    });
+
+    const paused = document.createElement("div");
+    paused.className = "paused";
+    paused.textContent = "PAUSED";
+
     this.canvas = document.createElement("canvas");
     this.canvas.width = 480;
     this.canvas.height = 360;
-    this.el.appendChild(this.canvas);
+    this.canvas.addEventListener("click", (e) => this.onClick(e));
+
+    this.infoEl = document.createElement("div");
+    this.infoEl.className = "info hidden";
+    this.infoLines = document.createElement("div");
+    this.infoLines.className = "lines";
+    this.setCourseBtn = document.createElement("button");
+    this.setCourseBtn.className = "setcourse";
+    this.setCourseBtn.type = "button";
+    this.setCourseBtn.textContent = "SET COURSE";
+    this.setCourseBtn.addEventListener("click", () => {
+      // Tap-to-target already set the target; this just closes the map.
+      this.close();
+      this.setCourseBtn.blur();
+    });
+    this.infoEl.appendChild(this.infoLines);
+    this.infoEl.appendChild(this.setCourseBtn);
+
+    this.panel.appendChild(this.titleEl);
+    this.panel.appendChild(this.closeBtn);
+    this.panel.appendChild(paused);
+    this.panel.appendChild(this.canvas);
+    this.panel.appendChild(this.infoEl);
+    this.el.appendChild(this.panel);
     root.appendChild(this.el);
     this.ctx = this.canvas.getContext("2d")!;
-    this.canvas.addEventListener("click", (e) => this.onClick(e));
+
+    // Esc closes the map when it's open, otherwise does nothing — a single
+    // obvious close-map hook (this.close()) a later settings-panel-priority
+    // handler (Task 11) can compose with.
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Escape" && this.open) this.close();
+    });
   }
 
   // Match the backing store to the CSS size × DPR so the map stays sharp on
@@ -50,11 +117,39 @@ export class NavMap {
   toggle(): void {
     this.open = !this.open;
     this.el.classList.toggle("open", this.open);
+    if (this.open) this.renderInfo();
   }
 
-  update(shipPos: Vec3): void {
+  // Single close path — the × button, Esc, and the backdrop click all call
+  // this, so Game's open-state logic (this.navmap.isOpen) stays single-path
+  // no matter which affordance closed it.
+  close(): void {
+    if (!this.open) return;
+    this.open = false;
+    this.el.classList.remove("open");
+  }
+
+  update(shipPos: Vec3, shipVel: Vec3): void {
     this.shipPos = shipPos;
-    if (this.open) this.draw();
+    this.shipVel = shipVel;
+    if (this.open) {
+      this.draw();
+      this.renderInfo();
+    }
+  }
+
+  private renderInfo(): void {
+    const body = this.target ? this.bodies.find((b) => b.name === this.target) : undefined;
+    if (!body) {
+      if (!this.infoEl.classList.contains("hidden")) this.infoEl.classList.add("hidden");
+      return;
+    }
+    const distanceM = body.position.sub(this.shipPos).length();
+    const distToDrop = Math.max(0, distanceM - body.captureRadius);
+    const etaSec = etaSeconds(distToDrop, this.shipVel.length());
+    const text = bodyInfoLines(body, distanceM, etaSec).join("  ·  ");
+    if (this.infoLines.textContent !== text) this.infoLines.textContent = text;
+    if (this.infoEl.classList.contains("hidden")) this.infoEl.classList.remove("hidden");
   }
 
   private draw(): void {
@@ -114,6 +209,7 @@ export class NavMap {
     if (best) {
       this.target = best;
       this.draw();
+      this.renderInfo();
     }
   }
 }

@@ -806,7 +806,7 @@ export class Game {
       );
     }
 
-    this.navmap.update(this.ship.position);
+    this.navmap.update(this.ship.position, this.ship.velocity);
     this.touch.update(
       contextAction({
         phaseKind: this.phase.kind,

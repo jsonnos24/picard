@@ -93,19 +93,66 @@
 #controls .crow span:not(b) { color: rgba(255, 217, 138, 0.75); }
 
 /* ---- Nav map ---- */
+/* #navmap is a full-screen backdrop (click = close); .panel is the visible
+   card, centred inside it. Keeps the backdrop-click affordance a real click
+   target instead of a document-level listener guessing at "outside". */
 #navmap {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45);
+  pointer-events: none; display: none; z-index: 20; /* above the touch steer zone */
+}
+#navmap.open { display: block; pointer-events: auto; }
+#navmap .panel {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: min(90vw, 560px); height: min(70vh, 420px);
   background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
-  pointer-events: auto; display: none; z-index: 20; /* above the touch steer zone */
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
 }
-#navmap.open { display: block; }
 #navmap canvas { width: 100%; height: 100%; cursor: crosshair; touch-action: manipulation; }
 #navmap .title {
-  position: absolute; top: 8px; left: 12px; color: var(--accent);
+  position: absolute; top: 8px; left: 12px; right: 56px; color: var(--accent);
   font: 800 12px/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase;
 }
+#navmap .close {
+  position: absolute; top: 6px; right: 6px; width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  font: 800 20px/1 var(--font-display); color: var(--accent);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  cursor: pointer; z-index: 1;
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#navmap .close:hover { background: rgba(7, 11, 24, 0.95); border-color: var(--accent-dim); }
+#navmap .close:active { transform: scale(0.94); }
+#navmap .paused {
+  position: absolute; top: 56px; right: 6px;
+  font: 800 10px/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent); border: 1.5px solid var(--accent-border); border-radius: 999px;
+  padding: 4px 10px; pointer-events: none;
+}
+
+/* Selected-body info strip: name/kind/distance/eta/gravity/landable + the
+   SET COURSE button. Same show/hide pattern as the HUD's status rows. */
+#navmap .info {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--ink-panel); border-top: 1.5px solid var(--accent-border);
+  padding: 8px 12px; font: 12px/1.4 var(--font-mono); color: var(--accent);
+  opacity: 1; transform: translateY(0); visibility: visible;
+  transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out), visibility 0s linear 0s;
+}
+#navmap .info.hidden {
+  opacity: 0; transform: translateY(8px); visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+}
+#navmap .info .lines { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+#navmap .setcourse {
+  flex: 0 0 auto; min-height: 44px; padding: 0 14px;
+  font: 800 12px/1 var(--font-display); letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink); background: var(--accent); border: 1.5px solid var(--accent); border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#navmap .setcourse:hover { background: var(--accent-dim); }
+#navmap .setcourse:active { transform: scale(0.96); }
 #ui .marker {
   position: absolute; transform: translate(-50%, -50%) scale(1); color: var(--success);
   font: 700 13px var(--font-mono); text-shadow: 0 0 4px rgba(0, 0, 0, 0.6); white-space: nowrap;
@@ -153,7 +200,11 @@
   #controls,
   #controls.hidden,
   #mutebtn,
-  #touchcontrols .tbtn {
+  #touchcontrols .tbtn,
+  #navmap .info,
+  #navmap .info.hidden,
+  #navmap .close,
+  #navmap .setcourse {
     transition-duration: 1ms !important;
   }
 }
