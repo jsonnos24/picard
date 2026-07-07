@@ -560,10 +560,14 @@ export class Game {
       const navDir = this.navTargetDirection();
       for (const body of this.bodies) {
         // Assist is a sticky toggle — it must not blanket-disable capture at
-        // every body for the rest of the flight. Only the body currently
-        // being assist-landed suppresses re-capture (see captureGate.ts);
-        // arrivals everywhere else, and at this body while still in space,
-        // capture exactly as they would with assist off.
+        // every body for the rest of the flight (the old `!assistOn` gate did
+        // exactly that). NOTE: because this scan only runs in the "space"
+        // phase, allowCapture currently always permits here — the J-at-target
+        // assist-landing flow is actually protected by the `sling.kind ===
+        // "none"` gate above (a released sling stays "released" through the
+        // whole descent; see tickSling's outside-capture-radius rule).
+        // allowCapture encodes the assist-descent suppression rule for any
+        // future loosening of the outer phase gate (see captureGate.ts).
         const isPrimaryBody = body.name === this.framePrimary.body.name;
         if (!allowCapture({ assistOn: this.assistOn, phaseKind: this.phase.kind, isPrimaryBody })) {
           continue;
