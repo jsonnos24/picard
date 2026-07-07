@@ -83,7 +83,16 @@ export class TouchControls {
       this.steerPointer = e.pointerId;
       this.anchorX = e.clientX;
       this.anchorY = e.clientY;
-      steer.setPointerCapture(e.pointerId);
+      // Best-effort: capture keeps pointermove/up routed here even if the
+      // finger drifts outside the (full-screen) steer zone. It can throw if
+      // the pointerId isn't one the browser considers active (observed with
+      // synthetic PointerEvents in automated testing) — steering and the
+      // visual feedback below must not depend on it succeeding.
+      try {
+        steer.setPointerCapture(e.pointerId);
+      } catch {
+        /* not fatal — see comment above */
+      }
 
       this.stickBase.style.left = `${this.anchorX}px`;
       this.stickBase.style.top = `${this.anchorY}px`;
