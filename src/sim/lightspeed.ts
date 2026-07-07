@@ -33,10 +33,45 @@ export interface LsTarget {
 export interface LsStepResult {
   pos: Vec3;
   vel: Vec3;
-  done: boolean; // reached the capture ring — hand off to capture/descent
+  done: boolean; // cruise ended — hand off to capture/descent (arrival) or resume normal flight (obstacle)
+  blocked?: boolean; // true only when `done` fired because an obstacle blocked the path, not an arrival
 }
 
 const clamp1 = (v: number): number => Math.max(-1, Math.min(1, v));
+
+// An obstacle guided cruise must not tunnel through — today only the Sun
+// (Game passes its center + captureRadius, the same bubble sunRepel uses).
+// free-cruise already stops at any body's bubble because the Sun is just
+// another entry in its obstacle list; guided cruise flies a straight
+// trapezoid to a specific target and had no such check at all.
+export interface LsObstacle {
+  position: Vec3;
+  bubbleRadius: number;
+}
+
+// Point-segment(ish) check: does the straight ray from `pos` toward `dirTo`
+// enter the obstacle's bubble before `maxDist` (the target's own drop
+// point)? Returns the distance to the entry boundary, or null if the path
+// never gets there (misses the bubble, only grazes its edge, the bubble is
+// behind us, or it lies beyond the target we're already aiming to reach).
+function obstacleEntryDistance(
+  pos: Vec3,
+  dirTo: Vec3,
+  maxDist: number,
+  obstacle: LsObstacle,
+): number | null {
+  const toObs = obstacle.position.sub(pos);
+  const distC = toObs.length();
+  if (distC <= obstacle.bubbleRadius) return 0; // already inside — drop immediately
+  const proj = toObs.dot(dirTo);
+  if (proj <= 0) return null; // obstacle is behind us
+  const perp2 = distC * distC - proj * proj;
+  const R2 = obstacle.bubbleRadius * obstacle.bubbleRadius;
+  if (perp2 >= R2) return null; // ray misses the bubble, or only grazes its edge (tangent)
+  const s = proj - Math.sqrt(R2 - perp2);
+  if (s < 0 || s >= maxDist) return null; // entry is behind us, or beyond the target's drop point
+  return s;
+}
 
 export function lightspeedStep(
   pos: Vec3,
@@ -45,10 +80,37 @@ export function lightspeedStep(
   steer: { x: number; y: number }, // -1..1 each
   dt: number,
   p: LsParams = DEFAULT_LS_PARAMS,
+  obstacle?: LsObstacle,
 ): LsStepResult {
   const toTarget = target.position.sub(pos);
   const distToDrop = toTarget.length() - target.captureRadius;
   const dirTo = toTarget.normalize();
+
+  const blockDist = obstacle
+    ? obstacleEntryDistance(pos, dirTo, Math.max(0, distToDrop), obstacle)
+    : null;
+
+  if (blockDist !== null) {
+    // The straight path to the target would tunnel through the obstacle's
+    // bubble first: brake toward the near boundary exactly like an arrival,
+    // but hand off straight ahead (no flyby aim) — there's nothing to
+    // capture here, this is an abort. Gravity, the repel force, and the HUD
+    // heat warning take over from here; the caller (Game) must not treat
+    // this as an arrival (see LsStepResult.blocked).
+    const vDes = Math.min(
+      p.vMax,
+      Math.sqrt(p.vArrive * p.vArrive + 2 * p.aBrake * blockDist),
+    );
+    const speedNow = vel.length();
+    const speed =
+      speedNow < vDes
+        ? Math.min(vDes, speedNow + p.aAccel * dt)
+        : Math.max(vDes, speedNow - p.aBrake * dt);
+    if (blockDist <= speed * dt) {
+      return { pos: pos.add(dirTo.scale(blockDist)), vel: dirTo.scale(p.vArrive), done: true, blocked: true };
+    }
+    return { pos: pos.add(dirTo.scale(speed * dt)), vel: dirTo.scale(speed), done: false };
+  }
 
   // Trapezoid profile on the remaining distance: never faster than what aBrake
   // can shed down to vArrive by the ring.

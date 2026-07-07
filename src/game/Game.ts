@@ -11,7 +11,7 @@ import {
   applyMotionState,
   thrustAccel as shipThrustAccel,
 } from "../sim/Spacecraft";
-import { shipAccelFn } from "../sim/forces";
+import { shipAccel } from "../sim/forces";
 import {
   SlingState,
   DEFAULT_SLING_PARAMS,
@@ -25,7 +25,7 @@ import {
 } from "../sim/slingshot";
 import { createGravityRings } from "../render/scene/gravityRings";
 import { gravityAccel } from "../sim/gravity";
-import { verletStep } from "../sim/integrator";
+import { verletStep, AccelFn } from "../sim/integrator";
 import { createTimeControl, advance, TimeControl } from "../sim/TimeControl";
 import { FloatingOrigin, createFloatingOrigin, rebase, toRender } from "../sim/FloatingOrigin";
 import { Vec3 } from "../sim/Vec3";
@@ -37,7 +37,7 @@ import { thrustDirection } from "./attitude";
 import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { BrakeState, idleBrake, stepBrake } from "./retroBrake";
-import { stepBreakaway } from "./breakaway";
+import { stepBreakaway, capturedPrecedence } from "./breakaway";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { jumpDecision, lightspeedTap } from "./jump";
 import { evaluateTouchdown } from "./landing";
@@ -87,6 +87,7 @@ import { moodFromSnapshot } from "./feel/musicBed";
 import { AudioDirector } from "../audio/AudioDirector";
 import { chaseShake, idleImpulse, addImpulse, decayImpulse, ImpulseState } from "./feel/shake";
 import { resolveQualityTier, QualityTier } from "./feel/quality";
+import { BenchState, idleBenchState, benchTick } from "./feel/qualityBench";
 import type { Quality } from "./settings";
 
 export class Game {
@@ -170,12 +171,37 @@ export class Game {
   // player's explicit "low" choice mid-session.
   private qualitySetting: Quality = "auto";
   private currentTier: QualityTier = "high";
-  private benchFrameCount = 0;
-  private benchTotalMs = 0;
-  private benchResolved = false;
+  // Hidden-tab safe (Phase F1 §4): benchTick (pure, tested) skips frames
+  // while document.hidden and restarts the 60-frame window on visibility
+  // regain — see qualityBench.ts for why (rAF throttling would otherwise
+  // read as a catastrophic frame time and downgrade tier for good).
+  private benchState: BenchState = idleBenchState();
   // Probed once at construction (same lifecycle as the quality/pointer-lock
   // probes above) — picks keyboardHint vs touchHint for the HUD's hint row.
   private readonly coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  // Allocation hoists (Phase F1 §3): frame-loop THREE.Vector3 scratch objects
+  // reused across calls (mutated via .set()/.copy()/.crossVectors() every
+  // use, never read across frames) instead of `new`d each time. Vec3 (the
+  // pure sim value type) is deliberately untouched — it's immutable by
+  // design (see Vec3.ts), so its per-call allocations are the library's
+  // normal style, not something to fix here.
+  private readonly _axisY = new THREE.Vector3(0, 1, 0); // shared constant "from" vector for setFromUnitVectors
+  private readonly _orientDirTmp = new THREE.Vector3(); // setOrient()'s scratch direction vector
+  private readonly _walkFwd = new THREE.Vector3();
+  private readonly _walkRight = new THREE.Vector3();
+  private readonly _walkPbUp = new THREE.Vector3();
+  private readonly _walkMove = new THREE.Vector3();
+  private readonly _footUp = new THREE.Vector3();
+  private readonly _footEye = new THREE.Vector3();
+  private readonly _footRefAxis = new THREE.Vector3();
+  private readonly _footBaseFwd = new THREE.Vector3();
+  private readonly _footLookAt = new THREE.Vector3();
+  // Bound once (Phase F1 §3): shipAccel reads `this.ship`/`this.bodies` live
+  // at call time, so a single long-lived closure stays correct even though
+  // `this.ship` is reassigned every step — no need to rebuild it (and the
+  // sunRepel-wrapping closure around it) on every stepSim() call.
+  private readonly shipAccelWithSun: AccelFn = (p, v) =>
+    shipAccel(this.ship, this.bodies, p, v).add(sunRepel(p, this.sun));
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -234,9 +260,7 @@ export class Game {
   // immediately against the current dpr/pointer probe.
   setQualitySetting(quality: Quality): void {
     this.qualitySetting = quality;
-    this.benchResolved = false;
-    this.benchFrameCount = 0;
-    this.benchTotalMs = 0;
+    this.benchState = idleBenchState();
     this.applyQualityResolve();
   }
 
@@ -290,10 +314,12 @@ export class Game {
       const pb = selectPrimaryBody(this.astronaut.position, this.bodies);
       const dt = FIXED_DT;
       // Build a walk direction in the surface tangent from camera-facing + WASD.
-      const fwd = new THREE.Vector3();
+      const fwd = this._walkFwd;
       this.renderer.camera.getWorldDirection(fwd);
-      const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z)).normalize();
-      let move = new THREE.Vector3();
+      const right = this._walkRight
+        .crossVectors(fwd, this._walkPbUp.set(pb.up.x, pb.up.y, pb.up.z))
+        .normalize();
+      const move = this._walkMove.set(0, 0, 0);
       if (this.input.isActive("walkForward")) move.add(fwd);
       if (this.input.isActive("walkBack")) move.sub(fwd);
       if (this.input.isActive("walkLeft")) move.sub(right);
@@ -301,8 +327,8 @@ export class Game {
       // Touch drag walks too (override only — keyboard is covered above).
       const ox = this.input.getAxisOverride("steerX");
       const oy = this.input.getAxisOverride("steerY");
-      if (ox) move.add(right.clone().multiplyScalar(ox));
-      if (oy) move.add(fwd.clone().multiplyScalar(oy));
+      if (ox) move.addScaledVector(right, ox);
+      if (oy) move.addScaledVector(fwd, oy);
       const walkDir = new Vec3(move.x, move.y, move.z);
       const jump = this.input.isActive("jump");
       // stepAstronaut (sim, untouched) only actually jumps when grounded —
@@ -319,7 +345,16 @@ export class Game {
     if (this.cruising && this.lsTargetName) {
       const target = findBody(this.bodies, this.lsTargetName);
       const steer = { x: this.input.getAxis("steerX"), y: this.input.getAxis("steerY") };
-      const r = lightspeedStep(this.ship.position, this.ship.velocity, target, steer, dt);
+      const obstacle = { position: this.sun.position, bubbleRadius: this.sun.captureRadius };
+      const r = lightspeedStep(
+        this.ship.position,
+        this.ship.velocity,
+        target,
+        steer,
+        dt,
+        DEFAULT_LS_PARAMS,
+        obstacle,
+      );
       this.ship.position = r.pos;
       this.ship.velocity = r.vel;
       this.ship.throttle = 0;
@@ -329,7 +364,11 @@ export class Game {
         this.cruising = false;
         this.lsTargetName = null;
         this.lsSeq = endCruise(this.lsSeq);
-        this.pendingCues.arrived = true;
+        // A Sun dropout is an abort, not an arrival — `arrived` must stay
+        // false so the one-shot cue reads as warpAbort, not warpArrive (see
+        // audioCues: cur.arrived false + cruising→false fires warpAbort).
+        // Gravity/sunRepel + the HUD heat warning take over from here.
+        if (!r.blocked) this.pendingCues.arrived = true;
       }
       this.updatePhaseFromAltitude();
       return;
@@ -380,7 +419,13 @@ export class Game {
       // nose out, so "hold W" is never a dead input while tethered.
       const bk = stepBreakaway(this.breakHold, this.input.isActive("throttleUp"), dt);
       this.breakHold = bk.hold;
-      if (bk.free) {
+      // DECISION (Phase F1 §2, locked by controller): breakaway hold WINS
+      // over the landing assist's auto-drop while captured — holding W is an
+      // explicit player escape and must always work, so it's checked (and
+      // acted on) before assist ever gets a look. See capturedPrecedence in
+      // breakaway.ts for the pure decision this branch order encodes.
+      const precedence = capturedPrecedence(bk.free, this.assistOn);
+      if (precedence === "breakaway") {
         this.sling = {
           kind: "released",
           bodyName: this.sling.bodyName,
@@ -394,7 +439,7 @@ export class Game {
         return;
       }
 
-      if (this.assistOn) {
+      if (precedence === "assistLand") {
         // Tap-to-land while captured: the ring "absorbs" the swing momentum and
         // drops the ship gently — capped so the assist can always arrest it.
         this.sling = {
@@ -498,10 +543,10 @@ export class Game {
     }
 
     // The Sun never captures — it shoves (plus heat warnings on the HUD).
-    const base = shipAccelFn(this.ship, this.bodies);
-    const accel = (p: Vec3, v: Vec3): Vec3 => base(p, v).add(sunRepel(p, this.sun));
+    // accel is `shipAccelWithSun`, a single closure bound once in the field
+    // initializer (Phase F1 §3) rather than rebuilt every stepSim() call.
     this.lastAccelMag = shipThrustAccel(this.ship).length();
-    const next = verletStep(toMotionState(this.ship), dt, accel);
+    const next = verletStep(toMotionState(this.ship), dt, this.shipAccelWithSun);
     this.ship = applyMotionState(this.ship, next);
 
     // Fast flight into a gravity ring hooks the ship onto the swing rail —
@@ -599,10 +644,7 @@ export class Game {
 
   private setOrient(dir: Vec3): void {
     this.ship.orientation = dir;
-    this.quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(dir.x, dir.y, dir.z).normalize(),
-    );
+    this.quat.setFromUnitVectors(this._axisY, this._orientDirTmp.set(dir.x, dir.y, dir.z).normalize());
   }
 
   // Landing assist (auto-descent + soft touchdown): a velocity-vector autopilot.
@@ -641,17 +683,13 @@ export class Game {
     const dt = this.lastTime === 0 ? 0 : (t - this.lastTime) / 1000;
     this.lastTime = t;
 
-    // Quality bench (Phase D2): average real frame time over the first 60
-    // rendered frames (skipping the dt===0 first tick), then a one-shot
+    // Quality bench (Phase D2, hidden-tab fix Phase F1 §4): average real frame
+    // time over the first 60 rendered frames (skipping the dt===0 first tick
+    // and any hidden-tab frames — see qualityBench.ts), then a one-shot
     // downgrade-only recheck. Never re-armed except by setQualitySetting.
-    if (dt > 0 && !this.benchResolved) {
-      this.benchFrameCount++;
-      this.benchTotalMs += dt * 1000;
-      if (this.benchFrameCount >= 60) {
-        this.applyQualityResolve(this.benchTotalMs / this.benchFrameCount);
-        this.benchResolved = true;
-      }
-    }
+    const bench = benchTick(this.benchState, dt, document.hidden);
+    this.benchState = bench.state;
+    if (bench.avgMs !== null) this.applyQualityResolve(bench.avgMs);
 
     if (this.input.consumePressed("openMap")) this.navmap.toggle();
     if (this.input.consumePressed("lightspeed")) this.toggleLightspeed();
@@ -785,20 +823,20 @@ export class Game {
     if (this.phase.kind === "onFoot" && this.astronaut) {
       const r = toRender(this.fo, this.astronaut.position);
       const pb = focusPrimary;
-      const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
-      const eye = new THREE.Vector3(r.x, r.y, r.z).add(up.clone().multiplyScalar(1.6));
+      const up = this._footUp.set(pb.up.x, pb.up.y, pb.up.z);
+      const eye = this._footEye.set(r.x, r.y, r.z).addScaledVector(up, 1.6);
       this.renderer.camera.position.copy(eye);
       this.renderer.camera.up.copy(up);
       // Base orientation: look along a surface-tangent direction.
       // Guard against degenerate case where up is (anti)parallel to world +X by choosing a fallback axis.
       const refAxis = Math.abs(up.x) > 0.9
-        ? new THREE.Vector3(0, 0, 1)
-        : new THREE.Vector3(1, 0, 0);
-      const baseFwd = refAxis.clone().sub(up.clone().multiplyScalar(up.dot(refAxis))).normalize();
-      this.renderer.camera.lookAt(eye.clone().add(baseFwd));
+        ? this._footRefAxis.set(0, 0, 1)
+        : this._footRefAxis.set(1, 0, 0);
+      const baseFwd = this._footBaseFwd.copy(refAxis).addScaledVector(up, -up.dot(refAxis)).normalize();
+      this.renderer.camera.lookAt(this._footLookAt.copy(eye).add(baseFwd));
       this.rig.applyLook(this.renderer.camera);
       this.astronautGroup.position.set(r.x, r.y, r.z);
-      this.astronautGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+      this.astronautGroup.quaternion.setFromUnitVectors(this._axisY, up);
     } else if (this.rig.mode === "chase") {
       let slingView = null;
       if (this.sling.kind === "captured") {

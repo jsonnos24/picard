@@ -163,6 +163,103 @@ describe("etaSeconds", () => {
   });
 });
 
+describe("lightspeedStep — Sun obstacle (guided cruise must not tunnel through it)", () => {
+  const sun = findBody(bodies, "Sun"); // position (0,0,0), captureRadius 120_000
+  const obstacle = { position: sun.position, bubbleRadius: sun.captureRadius };
+  // A fake far-side target so the straight path runs squarely through the Sun.
+  const beyondSun: Body = { ...findBody(bodies, "Mars"), position: new Vec3(500_000, 0, 0) };
+
+  function flyObstacle(
+    pos: Vec3,
+    target: Body,
+    maxSeconds = 60,
+  ): { t: number; pos: Vec3; vel: Vec3; done: boolean; blocked: boolean } {
+    let p = pos.clone();
+    let v = Vec3.zero();
+    let t = 0;
+    for (let i = 0; i < maxSeconds * 60; i++) {
+      const r = lightspeedStep(p, v, target, NO_STEER, DT, P, obstacle);
+      p = r.pos;
+      v = r.vel;
+      t += DT;
+      if (r.done) return { t, pos: p, vel: v, done: true, blocked: r.blocked === true };
+    }
+    return { t, pos: p, vel: v, done: false, blocked: false };
+  }
+
+  it("drops out at the bubble boundary when the straight path would tunnel through the Sun", () => {
+    const start = new Vec3(-500_000, 0, 0);
+    const r = flyObstacle(start, beyondSun);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(true);
+    const distFromSun = r.pos.sub(sun.position).length();
+    expect(distFromSun).toBeCloseTo(sun.captureRadius, 0);
+    // Dropped on the near side (still negative x), well short of the target.
+    expect(r.pos.x).toBeLessThan(0);
+    expect(r.vel.length()).toBeCloseTo(P.vArrive, 3);
+  });
+
+  it("starts inside the bubble: drops immediately without moving", () => {
+    const start = new Vec3(50_000, 0, 0); // inside captureRadius (120_000)
+    const r = lightspeedStep(start, Vec3.zero(), beyondSun, NO_STEER, DT, P, obstacle);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(true);
+    expect(r.pos.sub(start).length()).toBeCloseTo(0, 6);
+  });
+
+  it("a path just outside the bubble (graze) is not blocked — reaches the target normally", () => {
+    const z = sun.captureRadius + 1000; // comfortably outside, still close
+    const start = new Vec3(-500_000, 0, z);
+    const grazeTarget: Body = { ...beyondSun, position: new Vec3(500_000, 0, z) };
+    const r = flyObstacle(start, grazeTarget);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(false);
+    const dist = r.pos.sub(grazeTarget.position).length();
+    expect(dist).toBeCloseTo(grazeTarget.captureRadius, 0);
+  });
+
+  it("a path just inside the bubble radius is blocked (strictly-within boundary)", () => {
+    const z = sun.captureRadius - 1000; // comfortably inside
+    const start = new Vec3(-500_000, 0, z);
+    const closeTarget: Body = { ...beyondSun, position: new Vec3(500_000, 0, z) };
+    const r = flyObstacle(start, closeTarget);
+    expect(r.done).toBe(true);
+    expect(r.blocked).toBe(true);
+  });
+
+  it("target beyond the Sun: cruise ends well short of the target's own capture ring", () => {
+    const start = new Vec3(-500_000, 0, 0);
+    const r = flyObstacle(start, beyondSun);
+    const distToTarget = r.pos.sub(beyondSun.position).length();
+    expect(distToTarget).toBeGreaterThan(beyondSun.captureRadius * 5);
+  });
+
+  it("unrelated paths are byte-identical to no-obstacle flight (far-off obstacle never engages)", () => {
+    const mars = findBody(bodies, "Mars");
+    const farObstacle = { position: new Vec3(0, 0, 50_000_000), bubbleRadius: 100 };
+    const withObstacle = fly(from("Earth"), mars); // uses lightspeedStep with no obstacle arg (unchanged call site)
+    let p = from("Earth");
+    let v = Vec3.zero();
+    let t = 0;
+    let done = false;
+    for (let i = 0; i < 120 * 60 && !done; i++) {
+      const r = lightspeedStep(p, v, mars, NO_STEER, DT, P, farObstacle);
+      p = r.pos;
+      v = r.vel;
+      t += DT;
+      done = r.done;
+    }
+    expect(done).toBe(true);
+    expect(p.x).toBe(withObstacle.pos.x);
+    expect(p.y).toBe(withObstacle.pos.y);
+    expect(p.z).toBe(withObstacle.pos.z);
+    expect(v.x).toBe(withObstacle.vel.x);
+    expect(v.y).toBe(withObstacle.vel.y);
+    expect(v.z).toBe(withObstacle.vel.z);
+    expect(t).toBeCloseTo(withObstacle.t, 6);
+  });
+});
+
 describe("freeCruiseStep — point-and-fly, no destination", () => {
   const p = DEFAULT_LS_PARAMS;
   const dt = 1 / 120;

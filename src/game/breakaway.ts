@@ -13,3 +13,19 @@ export function stepBreakaway(
   const next = hold + dt;
   return { hold: next, free: next >= BREAKAWAY_HOLD };
 }
+
+// Decides who gets the ship this frame while ring-captured. DECISION (locked
+// by controller, Phase F1 §2): a completed breakaway hold always outranks the
+// landing assist's auto-drop — holding W is an explicit player escape and
+// must always work, so it is checked (and acted on) before assist ever gets
+// a look. Game.stepSim already reads `bk.free` before `this.assistOn`, which
+// gives breakaway first refusal every frame; this just names that priority
+// as a pure, testable decision instead of leaving it implicit in the if/else
+// chain order.
+export type CapturedPrecedence = "breakaway" | "assistLand" | "swing";
+
+export function capturedPrecedence(breakawayFree: boolean, assistOn: boolean): CapturedPrecedence {
+  if (breakawayFree) return "breakaway";
+  if (assistOn) return "assistLand";
+  return "swing";
+}

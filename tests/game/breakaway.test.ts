@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stepBreakaway, BREAKAWAY_HOLD } from "../../src/game/breakaway";
+import { stepBreakaway, BREAKAWAY_HOLD, capturedPrecedence } from "../../src/game/breakaway";
 
 const DT = 1 / 60;
 
@@ -25,5 +25,20 @@ describe("stepBreakaway — thrust powers the ship off the swing rail", () => {
     expect(released.free).toBe(false);
     // A fresh hold needs the full duration again.
     expect(hold(BREAKAWAY_HOLD * 0.8, released.hold).free).toBe(false);
+  });
+});
+
+describe("capturedPrecedence — breakaway always outranks the landing assist", () => {
+  it("returns breakaway once the hold is free, regardless of assist", () => {
+    expect(capturedPrecedence(true, true)).toBe("breakaway");
+    expect(capturedPrecedence(true, false)).toBe("breakaway");
+  });
+
+  it("returns assistLand when assist is on and breakaway hasn't freed the ship", () => {
+    expect(capturedPrecedence(false, true)).toBe("assistLand");
+  });
+
+  it("returns swing when neither breakaway nor assist apply", () => {
+    expect(capturedPrecedence(false, false)).toBe("swing");
   });
 });
