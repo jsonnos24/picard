@@ -37,8 +37,12 @@ export class Renderer {
   // that targets the screen, and it's the sole place toneMapping/ACES gets
   // applied — so "low" tier (gl.render straight to the canvas, no composer)
   // and "high" tier with a dark/non-bloomed scene tone-map identically.
-  private readonly composer: EffectComposer;
-  private readonly bloomPass: UnrealBloomPass;
+  // Lazily built by ensureComposer() and torn down in setQualityTier("low") —
+  // null means no composer-owned VRAM (HalfFloat MSAA target + bloom's
+  // mip-chain targets) is currently allocated.
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
+  private outputPass: OutputPass | null = null;
   private tier: QualityTier = "high";
 
   constructor(canvas: HTMLCanvasElement) {
@@ -52,6 +56,16 @@ export class Renderer {
     this.starfield = createStarfield();
     this.scene.add(this.starfield.group);
 
+    this.resize();
+  }
+
+  // Builds the composer chain on demand — idempotent, so repeated calls (e.g.
+  // switching high → low → high) don't leak a previous chain. Nothing
+  // bloom-related is allocated until this runs, which only happens from
+  // setQualityTier("high").
+  private ensureComposer(): void {
+    if (this.composer) return;
+
     // Replacing direct-to-canvas with a composer target drops the implicit
     // MSAA the canvas context's own antialias:true gave us — restored
     // explicitly here via samples on the composer's render target.
@@ -61,18 +75,38 @@ export class Renderer {
       samples: 4,
       type: THREE.HalfFloatType,
     });
-    this.composer = new EffectComposer(this.gl, renderTarget);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloomPass = new UnrealBloomPass(
+    const composer = new EffectComposer(this.gl, renderTarget);
+    composer.addPass(new RenderPass(this.scene, this.camera));
+    const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h),
       BLOOM_STRENGTH,
       BLOOM_RADIUS,
       BLOOM_THRESHOLD,
     );
-    this.composer.addPass(this.bloomPass);
-    this.composer.addPass(new OutputPass());
+    composer.addPass(bloomPass);
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
 
-    this.resize();
+    this.composer = composer;
+    this.bloomPass = bloomPass;
+    this.outputPass = outputPass;
+
+    const ratio = Math.min(window.devicePixelRatio, this.dprCap);
+    composer.setPixelRatio(ratio);
+    composer.setSize(w, h);
+  }
+
+  // Releases the composer's own MSAA/HalfFloat target plus every mip-chain
+  // target UnrealBloomPass and OutputPass own — none of that VRAM should
+  // stay resident once "low" tier is in effect.
+  private teardownComposer(): void {
+    if (!this.composer) return;
+    this.composer.dispose();
+    this.bloomPass?.dispose();
+    this.outputPass?.dispose();
+    this.composer = null;
+    this.bloomPass = null;
+    this.outputPass = null;
   }
 
   // CSS height * the pixel ratio actually in effect (post-dprCap) — i.e. the
@@ -103,20 +137,31 @@ export class Renderer {
     // Composer's own setSize multiplies by whatever pixel ratio it was last
     // told about, so the ratio has to be re-applied here too (mirrors the
     // renderer.setPixelRatio call directly above) before setSize scales it in.
-    this.composer.setPixelRatio(ratio);
-    this.composer.setSize(w, h);
+    // Only touched when it exists — "low" tier has no composer to resize.
+    if (this.composer) {
+      this.composer.setPixelRatio(ratio);
+      this.composer.setSize(w, h);
+    }
     this.starfield.setDrawingBufferHeight(this.drawingBufferHeight());
   }
 
-  // Runtime switch (settings panel later): "high" runs the bloom composer,
-  // "low" renders straight to the canvas — no composer overhead at all, not
-  // just bloom disabled. Sun sprites already carry the glow look at low tier.
+  // Runtime switch (settings panel later): "high" builds (or reuses) the
+  // bloom composer; "low" tears it down — the HalfFloat MSAA render target
+  // and UnrealBloomPass's mip-chain targets are real VRAM, not just skipped
+  // draw calls, so low tier frees them rather than leaving them idle. Sun
+  // sprites already carry the glow look at low tier.
   setQualityTier(tier: QualityTier): void {
     this.tier = tier;
+    if (tier === "high") this.ensureComposer();
+    else this.teardownComposer();
   }
 
   render(): void {
-    if (this.tier === "high") this.composer.render();
-    else this.gl.render(this.scene, this.camera);
+    if (this.tier === "high") {
+      if (!this.composer) throw new Error("Renderer: high tier requires a composer");
+      this.composer.render();
+    } else {
+      this.gl.render(this.scene, this.camera);
+    }
   }
 }
