@@ -43,6 +43,7 @@ import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { jumpDecision, lightspeedTap } from "./jump";
 import { evaluateTouchdown } from "./landing";
 import { padReset } from "./padReset";
+import { surfaceSpec, surfaceSeed, nearestLandTarget, SurfaceSpec } from "./feel/planetSurface";
 import { HUD } from "../ui/HUD";
 import { Controls } from "../ui/Controls";
 import { NavMap } from "../ui/NavMap";
@@ -69,6 +70,7 @@ import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
 import { createExhaust, NOZZLE_LOCAL_Y } from "../render/scene/exhaust";
 import { createContactShadow } from "../render/scene/contactShadow";
+import { createRocks, Rocks } from "../render/scene/rocks";
 import { ExhaustState, initExhaustState, exhaustStep, takeEmits } from "./feel/exhaust";
 import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
@@ -150,6 +152,7 @@ export class Game {
   private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void };
   private exhaust!: ReturnType<typeof createExhaust>;
   private exhaustState: ExhaustState = initExhaustState(0x5eed01);
+  private rocks!: Rocks;
   private padShadow!: ReturnType<typeof createContactShadow>;
   private astronautShadow!: ReturnType<typeof createContactShadow>;
   // The ship's primary body, cached once per sim step (item 3): selectPrimaryBody
@@ -244,6 +247,7 @@ export class Game {
     this.speedDust = createSpeedDust(this.renderer.scene);
     this.exhaust = createExhaust(this.shipGroup, this.renderer.scene);
     this.padShadow = createContactShadow(this.renderer.scene);
+    this.rocks = createRocks(this.renderer.scene);
     this.astronautShadow = createContactShadow(this.renderer.scene, 0.45);
     // Pointer Lock free-look is a mouse-only affordance; touch steers by drag.
     if (window.matchMedia("(pointer: fine)").matches) {
@@ -698,10 +702,30 @@ export class Game {
     if (pb.altitude < 50) targetSpeed = Math.min(targetSpeed, 12);
     if (pb.altitude < 14) targetSpeed = Math.min(targetSpeed, 4);
     if (pb.altitude < 6) targetSpeed = Math.min(targetSpeed, 2.4); // soft touchdown
+
+    // Aim for land, not open ocean: when the point below is water, slide
+    // sideways toward the nearest continent/cap and hold off the final
+    // descent until ground is under the legs.
+    let driftCmd = vHoriz.scale(-1.5); // default: null the drift
+    const dirFromCenter = this.ship.position.sub(pb.body.position).normalize();
+    const here = Game.latLonOf(dirFromCenter);
+    const landTarget = nearestLandTarget(this.specFor(pb.body), here.latDeg, here.lonDeg);
+    if (landTarget) {
+      const tp = pb.body.position.add(Game.dirOf(landTarget.latDeg, landTarget.lonDeg).scale(pb.body.radius));
+      const toLand = tp.sub(this.ship.position);
+      const tangent = toLand.sub(pb.up.scale(toLand.dot(pb.up)));
+      const dist = tangent.length();
+      if (dist > 1) {
+        const desired = tangent.scale(1 / dist).scale(Math.min(45, 5 + dist * 0.15));
+        driftCmd = desired.sub(vHoriz).scale(1.2);
+      }
+      // Hover over the water while sliding — don't set down in the drink.
+      if (pb.altitude < 120) targetSpeed = Math.min(targetSpeed, 2);
+    }
     const targetVS = -Math.max(2, targetSpeed);
 
-    // Desired acceleration: track the descent rate, null the drift, fight gravity.
-    const cmd = pb.up.scale((targetVS - vUp) * 2.0 + gLocal).sub(vHoriz.scale(1.5));
+    // Desired acceleration: track the descent rate, steer the drift, fight gravity.
+    const cmd = pb.up.scale((targetVS - vUp) * 2.0 + gLocal).add(driftCmd);
     const mag = cmd.length();
     if (mag < 0.3) {
       this.ship.throttle = 0;
@@ -922,6 +946,19 @@ export class Game {
         t / 1000,
         this.lsFovScale,
       );
+    }
+
+    // Landing-site rocks: parallax anchors while landed / on foot.
+    const grounded = this.phase.kind === "landed" || this.phase.kind === "onFoot";
+    if (grounded && !this.rocks.visible) {
+      const pbNow = this.framePrimary;
+      const sr = toRender(this.fo, pbNow.body.position.add(pbNow.up.scale(pbNow.body.radius)));
+      const upV = new THREE.Vector3(pbNow.up.x, pbNow.up.y, pbNow.up.z);
+      const here = Game.latLonOf(this.ship.position.sub(pbNow.body.position).normalize());
+      const siteSeed = (surfaceSeed(pbNow.body.name) ^ (Math.round(here.latDeg) * 73856093) ^ (Math.round(here.lonDeg) * 19349663)) >>> 0;
+      this.rocks.show(new THREE.Vector3(sr.x, sr.y, sr.z), upV, siteSeed);
+    } else if (!grounded && this.rocks.visible) {
+      this.rocks.hide();
     }
 
     // The body we're "at" (captured in its ring, landed on it, or walking
@@ -1178,6 +1215,32 @@ export class Game {
   private showNotice(text: string): void {
     this.notice = text;
     this.noticeUntil = this.missionElapsed + 3.5;
+  }
+
+  // Land queries reuse the exact spec the renderer painted (same seed) —
+  // what looks like ocean IS ocean to the landing assist.
+  private readonly surfaceSpecs = new Map<string, SurfaceSpec>();
+  private specFor(body: Body): SurfaceSpec {
+    let spec = this.surfaceSpecs.get(body.name);
+    if (!spec) {
+      const hex = `#${body.color.toString(16).padStart(6, "0")}`;
+      spec = surfaceSpec(body.name, surfaceSeed(body.name), hex);
+      this.surfaceSpecs.set(body.name, spec);
+    }
+    return spec;
+  }
+
+  // Painter/SphereGeometry convention (see planetTexture lonToX/latToY):
+  // dir = (-cos(lat)cos(lon), sin(lat), cos(lat)sin(lon)).
+  private static latLonOf(d: Vec3): { latDeg: number; lonDeg: number } {
+    const lat = Math.asin(Math.max(-1, Math.min(1, d.y))) / (Math.PI / 180);
+    const lon = Math.atan2(d.z, -d.x) / (Math.PI / 180);
+    return { latDeg: lat, lonDeg: lon };
+  }
+  private static dirOf(latDeg: number, lonDeg: number): Vec3 {
+    const la = latDeg * (Math.PI / 180);
+    const lo = lonDeg * (Math.PI / 180);
+    return new Vec3(-Math.cos(la) * Math.cos(lo), Math.sin(la), Math.cos(la) * Math.sin(lo));
   }
 
   // Swinging in the ring of the body the player meant to reach — arrival.

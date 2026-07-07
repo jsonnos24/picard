@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  generateConstellations,
   generateStars,
   generateBand,
   bandNormal,
@@ -105,5 +106,43 @@ describe("starfieldSpec", () => {
     let faintOrWarm = 0;
     for (const c of colorIndex) if (c === 1 || c === 3) faintOrWarm++;
     expect(faintOrWarm / colorIndex.length).toBeGreaterThan(0.6);
+  });
+});
+
+describe("generateConstellations", () => {
+  it("is deterministic and emits unit directions", () => {
+    const a = generateConstellations(42);
+    const b = generateConstellations(42);
+    expect(a.positions).toEqual(b.positions);
+    expect(a.lineDirs).toEqual(b.lineDirs);
+    for (let i = 0; i < a.positions.length; i += 3) {
+      const n = Math.hypot(a.positions[i], a.positions[i + 1], a.positions[i + 2]);
+      expect(n).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("different seeds place them differently", () => {
+    const a = generateConstellations(1);
+    const b = generateConstellations(2);
+    expect(a.positions).not.toEqual(b.positions);
+  });
+
+  it("stars are big, steady (no twinkle), and line pairs reference star dirs", () => {
+    const c = generateConstellations(7);
+    expect(c.positions.length).toBeGreaterThan(0);
+    for (let i = 0; i < c.sizes.length; i++) {
+      expect(c.sizes[i]).toBeGreaterThanOrEqual(2.6);
+      expect(c.twinkleAmp[i]).toBe(0);
+    }
+    // every line endpoint must coincide with some constellation star direction
+    expect(c.lineDirs.length % 6).toBe(0);
+    const stars = new Set<string>();
+    for (let i = 0; i < c.positions.length; i += 3) {
+      stars.add([c.positions[i], c.positions[i + 1], c.positions[i + 2]].map(v => v.toFixed(5)).join(","));
+    }
+    for (let i = 0; i < c.lineDirs.length; i += 3) {
+      const key = [c.lineDirs[i], c.lineDirs[i + 1], c.lineDirs[i + 2]].map(v => v.toFixed(5)).join(",");
+      expect(stars.has(key)).toBe(true);
+    }
   });
 });

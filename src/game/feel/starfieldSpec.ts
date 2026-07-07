@@ -185,3 +185,115 @@ export function bandNormal(seed: number): Vec3Tuple {
   const rng = prng(seed);
   return randomUnitVector(rng);
 }
+
+// ---- Constellations: hand-drawn cartoon patterns, seeded onto the sky ----
+
+export interface ConstellationField {
+  positions: Float32Array; // unit dirs, xyz per star
+  sizes: Float32Array; // big and steady — these anchor the sky
+  colorIndex: Uint8Array;
+  twinklePhase: Float32Array;
+  twinkleAmp: Float32Array; // all zeros: constellations don't twinkle
+  lineDirs: Float32Array; // unit-dir PAIRS (2 × xyz per segment) for the connect-the-dots art
+}
+
+// Planar star patterns (x right, y up, roughly unit-box scale) + edges.
+// Loosely: a dipper, a hunter's hourglass, a W, a kite, and a little arrow.
+const PATTERNS: { pts: [number, number][]; edges: [number, number][] }[] = [
+  { // dipper
+    pts: [[0, 0], [0.28, 0.05], [0.55, 0.02], [0.8, -0.08], [0.85, -0.38], [0.55, -0.42], [0.5, -0.12]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]],
+  },
+  { // hourglass hunter
+    pts: [[0, 0], [0.5, 0.08], [0.12, -0.55], [0.62, -0.5], [0.2, -0.27], [0.32, -0.28], [0.44, -0.29]],
+    edges: [[0, 1], [0, 2], [1, 3], [2, 3], [4, 5], [5, 6]],
+  },
+  { // the W
+    pts: [[0, 0], [0.22, -0.28], [0.45, -0.02], [0.68, -0.3], [0.9, -0.05]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 4]],
+  },
+  { // kite
+    pts: [[0, 0], [0.3, 0.35], [0.6, 0], [0.3, -0.5]],
+    edges: [[0, 1], [1, 2], [2, 3], [3, 0]],
+  },
+  { // little arrow
+    pts: [[0, 0], [0.35, 0], [0.7, 0], [0.52, 0.14], [0.52, -0.14]],
+    edges: [[0, 1], [1, 2], [2, 3], [2, 4]],
+  },
+];
+
+const CONSTELLATION_SPREAD = 0.55; // radians across a pattern's long axis
+
+export function generateConstellations(seed: number): ConstellationField {
+  const rng = prng(seed ^ 0xc057e11a);
+  const starCount = PATTERNS.reduce((n, p) => n + p.pts.length, 0);
+  const segCount = PATTERNS.reduce((n, p) => n + p.edges.length, 0);
+  const positions = new Float32Array(starCount * 3);
+  const sizes = new Float32Array(starCount);
+  const colorIndex = new Uint8Array(starCount);
+  const twinklePhase = new Float32Array(starCount);
+  const twinkleAmp = new Float32Array(starCount); // zeros
+  const lineDirs = new Float32Array(segCount * 6);
+
+  let si = 0;
+  let li = 0;
+  for (const pattern of PATTERNS) {
+    // Seeded orthonormal basis: center direction + two tangents.
+    const center = randomUnit(rng);
+    const tA = orthonormalTo(center, randomUnit(rng));
+    const tB = cross(center, tA);
+    const roll = rng() * Math.PI * 2;
+    const ca = Math.cos(roll);
+    const sa = Math.sin(roll);
+    const dirs: [number, number, number][] = [];
+    for (const [px, py] of pattern.pts) {
+      const x = (px - 0.4) * CONSTELLATION_SPREAD;
+      const y = (py + 0.2) * CONSTELLATION_SPREAD;
+      const u = x * ca - y * sa;
+      const v = x * sa + y * ca;
+      // Small-angle placement on the sphere around `center`.
+      let dx = center[0] + tA[0] * u + tB[0] * v;
+      let dy = center[1] + tA[1] * u + tB[1] * v;
+      let dz = center[2] + tA[2] * u + tB[2] * v;
+      const n = Math.hypot(dx, dy, dz);
+      dx /= n; dy /= n; dz /= n;
+      dirs.push([dx, dy, dz]);
+      positions[si * 3] = dx;
+      positions[si * 3 + 1] = dy;
+      positions[si * 3 + 2] = dz;
+      sizes[si] = 2.8 + rng() * 1.0;
+      colorIndex[si] = 1; // warm tint — reads as "named stars"
+      twinklePhase[si] = 0;
+      si++;
+    }
+    for (const [a, b] of pattern.edges) {
+      const A = dirs[a];
+      const B = dirs[b];
+      lineDirs.set([A[0], A[1], A[2], B[0], B[1], B[2]], li);
+      li += 6;
+    }
+  }
+  return { positions, sizes, colorIndex, twinklePhase, twinkleAmp, lineDirs };
+}
+
+function randomUnit(rng: () => number): [number, number, number] {
+  const z = rng() * 2 - 1;
+  const a = rng() * Math.PI * 2;
+  const r = Math.sqrt(Math.max(0, 1 - z * z));
+  return [r * Math.cos(a), r * Math.sin(a), z];
+}
+function orthonormalTo(n: [number, number, number], hint: [number, number, number]): [number, number, number] {
+  const d = hint[0] * n[0] + hint[1] * n[1] + hint[2] * n[2];
+  let x = hint[0] - n[0] * d;
+  let y = hint[1] - n[1] * d;
+  let z = hint[2] - n[2] * d;
+  let l = Math.hypot(x, y, z);
+  if (l < 1e-6) {
+    x = -n[1]; y = n[0]; z = 0;
+    l = Math.hypot(x, y, z) || 1;
+  }
+  return [x / l, y / l, z / l];
+}
+function cross(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}

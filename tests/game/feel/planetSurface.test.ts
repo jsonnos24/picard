@@ -1,6 +1,6 @@
 // tests/game/feel/planetSurface.test.ts
 import { describe, it, expect } from "vitest";
-import { surfaceSpec } from "../../../src/game/feel/planetSurface";
+import { surfaceSpec, isLandAt, nearestLandTarget } from "../../../src/game/feel/planetSurface";
 
 const KNOWN_BODIES = [
   "Jupiter",
@@ -139,5 +139,51 @@ describe("surfaceSpec", () => {
     expect(spec.kind).toBe("cratered");
     expect(spec.palette).toEqual(["#b8b4ae", "#948f89"]);
     expect(spec.craters).toHaveLength(12);
+  });
+});
+
+describe("isLandAt / nearestLandTarget", () => {
+  const earth = surfaceSpec("Earth", 12345, "#3f7fd0");
+
+  it("polar caps count as land", () => {
+    expect(isLandAt(earth, 89, 0)).toBe(true);
+    expect(isLandAt(earth, -89, 123)).toBe(true);
+  });
+
+  it("blob centers are land; far open ocean is not", () => {
+    const blob = earth.blobs![0];
+    expect(isLandAt(earth, blob.latDeg, blob.lonDeg)).toBe(true);
+    // Find an equatorial point far from every blob and both caps.
+    let waterLon = -1;
+    for (let lon = 0; lon < 360 && waterLon < 0; lon += 2) {
+      if (!isLandAt(earth, 0, lon)) waterLon = lon;
+    }
+    expect(waterLon).toBeGreaterThanOrEqual(0);
+  });
+
+  it("non-continent bodies are land everywhere", () => {
+    const moon = surfaceSpec("Moon", 999, "#b8b4ae");
+    expect(isLandAt(moon, 0, 0)).toBe(true);
+    const jup = surfaceSpec("Jupiter", 7, "#d9a066");
+    expect(isLandAt(jup, 12, 200)).toBe(true);
+  });
+
+  it("nearestLandTarget from open water points at real land", () => {
+    let waterLon = 0;
+    for (let lon = 0; lon < 360; lon += 2) { if (!isLandAt(earth, 0, lon)) { waterLon = lon; break; } }
+    const t = nearestLandTarget(earth, 0, waterLon);
+    expect(t).not.toBeNull();
+    expect(isLandAt(earth, t!.latDeg, t!.lonDeg)).toBe(true);
+  });
+
+  it("nearestLandTarget is null when already on land", () => {
+    const blob = earth.blobs![0];
+    expect(nearestLandTarget(earth, blob.latDeg, blob.lonDeg)).toBeNull();
+  });
+
+  it("is deterministic and pure", () => {
+    const a = isLandAt(earth, 10, 50);
+    const b = isLandAt(surfaceSpec("Earth", 12345, "#3f7fd0"), 10, 50);
+    expect(a).toBe(b);
   });
 });

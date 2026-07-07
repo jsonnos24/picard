@@ -4,6 +4,7 @@ import { toRender, FloatingOrigin } from "../../sim/FloatingOrigin";
 import { toonMaterial, addOutline } from "../toon";
 import { prng } from "../../game/feel/prng";
 import {
+  generateConstellations,
   generateStars,
   generateBand,
   bandNormal,
@@ -12,7 +13,7 @@ import {
   StarField,
 } from "../../game/feel/starfieldSpec";
 import { createStarfieldMaterial } from "./starfieldMaterial";
-import { surfaceSpec } from "../../game/feel/planetSurface";
+import { surfaceSpec, surfaceSeed } from "../../game/feel/planetSurface";
 import { paintSurface, paintRingTexture } from "./planetTexture";
 import { createAtmosphereRim } from "./atmosphereRim";
 import { createSunGlow, SunGlow } from "./sunGlow";
@@ -150,6 +151,38 @@ export function createStarfield(): Starfield {
   group.add(points);
   for (const sprite of createNebula(BAND_SEED, STARFIELD_RADIUS)) group.add(sprite);
 
+  // Constellations: a handful of bright, steady connect-the-dots patterns.
+  const con = generateConstellations(MAIN_SEED);
+  const conCount = con.sizes.length;
+  const conAttrs: StarAttributes = {
+    positions: new Float32Array(conCount * 3),
+    sizes: new Float32Array(conCount),
+    colors: new Float32Array(conCount * 3),
+    phases: new Float32Array(conCount),
+    amps: new Float32Array(conCount),
+  };
+  fillAttributes(conAttrs, con, 0, conCount, STARFIELD_RADIUS, tintColors);
+  const conGeo = new THREE.BufferGeometry();
+  conGeo.setAttribute("position", new THREE.BufferAttribute(conAttrs.positions, 3));
+  conGeo.setAttribute("aSize", new THREE.BufferAttribute(conAttrs.sizes, 1));
+  conGeo.setAttribute("aColor", new THREE.BufferAttribute(conAttrs.colors, 3));
+  conGeo.setAttribute("aPhase", new THREE.BufferAttribute(conAttrs.phases, 1));
+  conGeo.setAttribute("aAmp", new THREE.BufferAttribute(conAttrs.amps, 1));
+  group.add(new THREE.Points(conGeo, material));
+
+  // The faint line art (stock material — three injects log-depth for it).
+  const linePos = new Float32Array(con.lineDirs.length);
+  for (let i = 0; i < con.lineDirs.length; i++) linePos[i] = con.lineDirs[i] * STARFIELD_RADIUS * 0.998;
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
+  const lineMat = new THREE.LineBasicMaterial({
+    color: 0xcfe0ff,
+    transparent: true,
+    opacity: 0.14,
+    depthWrite: false,
+  });
+  group.add(new THREE.LineSegments(lineGeo, lineMat));
+
   return {
     group,
     update(tSec: number): void {
@@ -179,11 +212,14 @@ const GAS_GIANTS = new Set(["Jupiter", "Saturn", "Uranus", "Neptune"]);
 // Gas giants spin fastest, rocky planets slower, the tidally-locked-reading
 // Moon slowest of all. The Sun doesn't spin here (its "life" comes from the
 // layered glow instead — see createSunGlow).
-function spinRateFor(body: Body): number {
+function spinRateFor(body: Body, surfaceKind: string): number {
   if (body.kind === "star") return 0;
-  if (body.name === "Moon") return 0.004;
-  if (GAS_GIANTS.has(body.name)) return 0.02;
-  return 0.008;
+  // Longitude-varying surfaces (continents, craters) stay put: the sim's
+  // surface is fixed, so a spinning texture would drift land away from the
+  // pad and from landing-assist's land targeting. Latitude-banded looks are
+  // longitude-uniform, so those planets keep their living spin.
+  if (surfaceKind !== "banded" && surfaceKind !== "icegiant") return 0;
+  return GAS_GIANTS.has(body.name) ? 0.02 : 0.008;
 }
 
 function paleTint(hex: number, amount = 0.55): number {
@@ -206,15 +242,7 @@ const ATMOSPHERE_TINTS: Record<string, number> = {
 // Fixed, non-random seed base: surface painting must be identical every run
 // (reload shouldn't repaint continents in new places), but still vary
 // per-body — hashed together with the body's name.
-const SURFACE_SEED_BASE = 0x9e3779b9;
 
-function seedFromName(name: string): number {
-  let h = SURFACE_SEED_BASE >>> 0;
-  for (let i = 0; i < name.length; i++) {
-    h = Math.imul(h ^ name.charCodeAt(i), 16777619) >>> 0;
-  }
-  return h;
-}
 
 function hexColorString(color: number): string {
   return `#${color.toString(16).padStart(6, "0")}`;
@@ -231,9 +259,11 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
         ? // The Sun glows on its own — unlit, and it carries the scene's light.
           new THREE.MeshBasicMaterial({ color: body.color })
         : toonMaterial(body.color);
+    let surfaceKind = "star";
     if (body.kind !== "star") {
       // Surface painting happens once, here, at startup — never per frame.
-      const spec = surfaceSpec(body.name, seedFromName(body.name), hexColorString(body.color));
+      const spec = surfaceSpec(body.name, surfaceSeed(body.name), hexColorString(body.color));
+      surfaceKind = spec.kind;
       const canvas = paintSurface(spec);
       const tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -274,7 +304,7 @@ export function createBodies(scene: THREE.Scene, bodies: Body[]): BodyView[] {
       mesh.add(rings);
     }
     scene.add(mesh);
-    return { body, mesh, outline, rim, spinRate: spinRateFor(body), sunGlow };
+    return { body, mesh, outline, rim, spinRate: spinRateFor(body, surfaceKind), sunGlow };
   });
 }
 

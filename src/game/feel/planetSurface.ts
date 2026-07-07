@@ -247,3 +247,61 @@ export function surfaceSpec(bodyName: string, seed: number, fallbackColor?: stri
       };
   }
 }
+
+// ---- Land queries (landing assist steers toward land, not open ocean) ----
+
+const DEG = Math.PI / 180;
+
+// Angular distance between two lat/lon points on the unit sphere (degrees).
+function angularDeg(latA: number, lonA: number, latB: number, lonB: number): number {
+  const a1 = latA * DEG, o1 = lonA * DEG, a2 = latB * DEG, o2 = lonB * DEG;
+  const d =
+    Math.sin(a1) * Math.sin(a2) + Math.cos(a1) * Math.cos(a2) * Math.cos(o1 - o2);
+  return Math.acos(Math.max(-1, Math.min(1, d))) / DEG;
+}
+
+// Is this surface point standable "land"? Continent blobs and polar caps are
+// land; open base color is ocean. Every non-continent surface (bands,
+// craters, ice) is land everywhere.
+export function isLandAt(spec: SurfaceSpec, latDeg: number, lonDeg: number): boolean {
+  if (spec.kind !== "continents") return true;
+  if (spec.polarCaps && Math.abs(latDeg) >= spec.polarCaps.latDeg) return true;
+  for (const b of spec.blobs ?? []) {
+    if (angularDeg(latDeg, lonDeg, b.latDeg, b.lonDeg) <= b.radiusDeg) return true;
+  }
+  return false;
+}
+
+// Nearest land to aim a descent at, or null when the point is already land.
+// Candidates: every blob center plus the nearest point of the same-hemisphere
+// polar cap (same longitude, cap-edge latitude).
+export function nearestLandTarget(
+  spec: SurfaceSpec,
+  latDeg: number,
+  lonDeg: number,
+): { latDeg: number; lonDeg: number } | null {
+  if (isLandAt(spec, latDeg, lonDeg)) return null;
+  let best: { latDeg: number; lonDeg: number } | null = null;
+  let bestD = Infinity;
+  const consider = (la: number, lo: number): void => {
+    const d = angularDeg(latDeg, lonDeg, la, lo);
+    if (d < bestD) {
+      bestD = d;
+      best = { latDeg: la, lonDeg: lo };
+    }
+  };
+  for (const b of spec.blobs ?? []) consider(b.latDeg, b.lonDeg);
+  if (spec.polarCaps) consider(latDeg >= 0 ? spec.polarCaps.latDeg : -spec.polarCaps.latDeg, lonDeg);
+  return best;
+}
+
+// Deterministic per-body seed — shared by the renderer (texture painting)
+// and gameplay (land queries must see the SAME continents the player sees).
+const SURFACE_SEED_BASE = 0x9e3779b9;
+export function surfaceSeed(name: string): number {
+  let h = SURFACE_SEED_BASE >>> 0;
+  for (let i = 0; i < name.length; i++) {
+    h = Math.imul(h ^ name.charCodeAt(i), 16777619) >>> 0;
+  }
+  return h;
+}
