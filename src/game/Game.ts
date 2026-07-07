@@ -38,6 +38,7 @@ import { AngularState, zeroAngular, stepTurning } from "./feel/turning";
 import { nextThrottle, shouldHoldOnSurface } from "./shipControl";
 import { BrakeState, idleBrake, stepBrake } from "./retroBrake";
 import { stepBreakaway, capturedPrecedence } from "./breakaway";
+import { allowCapture } from "./captureGate";
 import { nextPhase, LAUNCH_CLEAR } from "./phases";
 import { jumpDecision, lightspeedTap } from "./jump";
 import { evaluateTouchdown } from "./landing";
@@ -553,11 +554,20 @@ export class Game {
     // but never mid-lightspeed (the drop profile owns arrivals).
     const lsBusy =
       this.cruising || this.lsBraking || this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst";
-    if (this.phase.kind === "space" && this.sling.kind === "none" && !this.assistOn && !lsBusy) {
+    if (this.phase.kind === "space" && this.sling.kind === "none" && !lsBusy) {
       const right3 = new THREE.Vector3(1, 0, 0).applyQuaternion(this.quat);
       const camRight = new Vec3(right3.x, right3.y, right3.z);
       const navDir = this.navTargetDirection();
       for (const body of this.bodies) {
+        // Assist is a sticky toggle — it must not blanket-disable capture at
+        // every body for the rest of the flight. Only the body currently
+        // being assist-landed suppresses re-capture (see captureGate.ts);
+        // arrivals everywhere else, and at this body while still in space,
+        // capture exactly as they would with assist off.
+        const isPrimaryBody = body.name === this.framePrimary.body.name;
+        if (!allowCapture({ assistOn: this.assistOn, phaseKind: this.phase.kind, isPrimaryBody })) {
+          continue;
+        }
         // Dead-radial entries (falling straight at the body) need a fallback
         // swing plane: build it to CONTAIN the nav target, so a release can
         // always line up with where the player wants to go.
