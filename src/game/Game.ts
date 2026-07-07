@@ -65,6 +65,8 @@ import {
 } from "./feel/lightspeedSequence";
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
+import { createExhaust, NOZZLE_LOCAL_Y } from "../render/scene/exhaust";
+import { ExhaustState, initExhaustState, exhaustStep, takeEmits } from "./feel/exhaust";
 import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
 import { Astronaut, createAstronaut, stepAstronaut } from "../sim/Astronaut";
@@ -125,6 +127,8 @@ export class Game {
   private astronautGroup!: THREE.Group;
   private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
   private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void };
+  private exhaust!: ReturnType<typeof createExhaust>;
+  private exhaustState: ExhaustState = initExhaustState(0x5eed01);
   // The ship's primary body, cached once per sim step (item 3): selectPrimaryBody
   // was being called ~5x/frame with an identical result each time.
   private framePrimary: PrimaryBody;
@@ -170,6 +174,7 @@ export class Game {
 
     this.dust = createDust(this.renderer.scene);
     this.speedDust = createSpeedDust(this.renderer.scene);
+    this.exhaust = createExhaust(this.shipGroup, this.renderer.scene);
     // Pointer Lock free-look is a mouse-only affordance; touch steers by drag.
     if (window.matchMedia("(pointer: fine)").matches) {
       const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
@@ -589,6 +594,14 @@ export class Game {
     });
     this.pendingCues = idleCues();
 
+    // Engine flame/trail kinematics (Phase D1): lag throttle asymmetrically,
+    // add seeded flicker, and accumulate a whole-number trail emission count
+    // for this frame — read by the exhaust render glue further down, once
+    // the ship's world transform is known.
+    this.exhaustState = exhaustStep(this.exhaustState, this.ship.throttle, dt);
+    const exhaustEmit = takeEmits(this.exhaustState);
+    this.exhaustState = exhaustEmit.state;
+
     // Audio: pure edge-detect + level/mood mapping off the snapshot just
     // built, handed to the one stateful director. Never throws/blocks even
     // headless — see AudioDirector's own guards.
@@ -616,6 +629,21 @@ export class Game {
     // Chase cam shows the toon ship; cockpit hides our own exterior. On foot the
     // lander stays visible so you can look back at it.
     this.shipGroup.visible = this.rig.mode === "chase" || this.phase.kind === "onFoot";
+
+    // Exhaust flame + trail: attached to shipGroup (so it hides consistently
+    // with the ship in cockpit mode) but the trail drifts in world space, so
+    // the nozzle's world position is computed here from the ship's transform.
+    const nozzleWorldPos = shipVec
+      .clone()
+      .add(new THREE.Vector3(0, NOZZLE_LOCAL_Y, 0).applyQuaternion(this.quat));
+    this.exhaust.update(
+      dt,
+      this.exhaustState.length,
+      this.exhaustState.flicker,
+      nozzleWorldPos,
+      this.ship.velocity,
+      exhaustEmit.count,
+    );
 
     // The ship's primary is cached (this.framePrimary, refreshed in stepSim);
     // on foot the relevant body is the astronaut's, a different position, so
