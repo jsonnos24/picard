@@ -66,6 +66,7 @@ import {
 import { createDust } from "../render/scene/dust";
 import { createSpeedDust } from "../render/scene/speedDust";
 import { createExhaust, NOZZLE_LOCAL_Y } from "../render/scene/exhaust";
+import { createContactShadow } from "../render/scene/contactShadow";
 import { ExhaustState, initExhaustState, exhaustStep, takeEmits } from "./feel/exhaust";
 import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
@@ -125,10 +126,12 @@ export class Game {
   private touch!: TouchControls;
   private astronaut: Astronaut | null = null;
   private astronautGroup!: THREE.Group;
-  private dust!: { puff(at: THREE.Vector3): void; update(dt: number): void };
+  private dust!: { puff(at: THREE.Vector3, up?: THREE.Vector3, intensity?: number): void; update(dt: number): void };
   private speedDust!: { update(velocity: Vec3, dt: number, cameraPos: THREE.Vector3, boost?: number): void };
   private exhaust!: ReturnType<typeof createExhaust>;
   private exhaustState: ExhaustState = initExhaustState(0x5eed01);
+  private padShadow!: ReturnType<typeof createContactShadow>;
+  private astronautShadow!: ReturnType<typeof createContactShadow>;
   // The ship's primary body, cached once per sim step (item 3): selectPrimaryBody
   // was being called ~5x/frame with an identical result each time.
   private framePrimary: PrimaryBody;
@@ -175,6 +178,8 @@ export class Game {
     this.dust = createDust(this.renderer.scene);
     this.speedDust = createSpeedDust(this.renderer.scene);
     this.exhaust = createExhaust(this.shipGroup, this.renderer.scene);
+    this.padShadow = createContactShadow(this.renderer.scene);
+    this.astronautShadow = createContactShadow(this.renderer.scene, 0.45);
     // Pointer Lock free-look is a mouse-only affordance; touch steers by drag.
     if (window.matchMedia("(pointer: fine)").matches) {
       const canvasEl = this.renderer.camera ? document.getElementById("view")! : document.body;
@@ -460,17 +465,24 @@ export class Game {
       const tilt = Math.acos(Math.max(-1, Math.min(1, this.ship.orientation.normalize().dot(pb.up))));
       const result = evaluateTouchdown(pb.altitude, vUp, tilt, this.padHeight);
       if (result === "landed") {
+        // No separate soft/hard verdict exists in evaluateTouchdown — derive
+        // it from a gentler inner threshold than the crash boundary.
+        const kind = vUp >= -SAFE_VSPEED / 2 ? "soft" : "hard";
         this.snapToSurface(pb.body, pb.up, this.padHeight);
         this.refreshPrimary();
         this.phase = transition(this.phase, { kind: "landed", body: pb.body.name });
         this.assistOn = false;
         this.ship.throttle = 0;
         const r = toRender(this.fo, this.ship.position);
-        this.dust.puff(new THREE.Vector3(r.x, r.y, r.z));
-        // No separate soft/hard verdict exists in evaluateTouchdown — derive
-        // it from a gentler inner threshold than the crash boundary.
-        this.pendingCues.touchdownKind = vUp >= -SAFE_VSPEED / 2 ? "soft" : "hard";
+        const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
+        this.dust.puff(new THREE.Vector3(r.x, r.y, r.z), up, kind === "soft" ? 0.5 : 1);
+        this.pendingCues.touchdownKind = kind;
       } else if (result === "crash") {
+        // Capture the impact point/up before resetToPad wipes the ship's
+        // position — the crash burst is the biggest intensity tier.
+        const r = toRender(this.fo, this.ship.position);
+        const up = new THREE.Vector3(pb.up.x, pb.up.y, pb.up.z);
+        this.dust.puff(new THREE.Vector3(r.x, r.y, r.z), up, 1.5);
         this.pendingCues.crashed = true;
         this.resetToPad();
       }
@@ -732,6 +744,41 @@ export class Game {
     const focusVel = this.phase.kind === "onFoot" && this.astronaut ? this.astronaut.velocity : this.ship.velocity;
     const skim = skimIntensity(focusPrimary.altitude, focusVel.length());
     this.speedDust.update(focusVel, dt, this.renderer.camera.position, skim);
+
+    // Contact shadows: the ship's shadow while grounded (landed/launching/
+    // descending, or parked while onFoot); a smaller second instance under
+    // the astronaut. Surface point per the brief: body.position + up*radius.
+    const shipShadowVisible =
+      this.phase.kind === "landed" ||
+      this.phase.kind === "launching" ||
+      this.phase.kind === "descending" ||
+      this.phase.kind === "onFoot";
+    const shipPb = this.framePrimary;
+    const shipSurfaceRender = toRender(this.fo, shipPb.body.position.add(shipPb.up.scale(shipPb.body.radius)));
+    const shipUp = new THREE.Vector3(shipPb.up.x, shipPb.up.y, shipPb.up.z);
+    this.padShadow.update(
+      shipVec,
+      new THREE.Vector3(shipSurfaceRender.x, shipSurfaceRender.y, shipSurfaceRender.z),
+      shipUp,
+      shipPb.altitude,
+      shipShadowVisible,
+    );
+    if (this.phase.kind === "onFoot" && this.astronaut) {
+      const apb = focusPrimary;
+      const aRender = toRender(this.fo, this.astronaut.position);
+      const aSurfaceRender = toRender(this.fo, apb.body.position.add(apb.up.scale(apb.body.radius)));
+      const aUp = new THREE.Vector3(apb.up.x, apb.up.y, apb.up.z);
+      this.astronautShadow.update(
+        new THREE.Vector3(aRender.x, aRender.y, aRender.z),
+        new THREE.Vector3(aSurfaceRender.x, aSurfaceRender.y, aSurfaceRender.z),
+        aUp,
+        apb.altitude,
+        true,
+      );
+    } else {
+      this.astronautShadow.update(shipVec, shipVec, shipUp, Infinity, false);
+    }
+
     this.updateHud();
     this.updateMarker();
     this.renderer.render();
