@@ -162,6 +162,9 @@ export class Game {
   private benchFrameCount = 0;
   private benchTotalMs = 0;
   private benchResolved = false;
+  // Probed once at construction (same lifecycle as the quality/pointer-lock
+  // probes above) — picks keyboardHint vs touchHint for the HUD's hint row.
+  private readonly coarsePointer = window.matchMedia("(pointer: coarse)").matches;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas);
@@ -929,12 +932,11 @@ export class Game {
       sling,
       missionSeconds: this.missionElapsed,
       assistOn: this.assistOn,
-      hint: this.keyboardHint(),
+      hint: this.coarsePointer ? this.touchHint() : this.keyboardHint(),
     });
   }
 
   // The one thing the player most likely wants to do next, in keyboard terms.
-  // (Touch players get the same guidance from the context button.)
   private keyboardHint(): string | null {
     if (this.sling.kind === "captured") {
       if (this.capturedAtTarget() && !this.input.isActive("slingHold")) {
@@ -963,6 +965,47 @@ export class Game {
         return this.assistOn ? null : "L — auto-land · hold S to brake";
       case "onFoot":
         return "WASD walk · SPACE jump · F board";
+    }
+  }
+
+  // Same "what do I do next" logic as keyboardHint(), worded for the touch
+  // button cluster (TouchControls.ts: the big context button, WARP, BRAKE,
+  // LAND/EXIT/JUMP taps) instead of key names. Kept as a parallel switch
+  // rather than a single parameterized function — the two wordings diverge
+  // enough (button labels vs key names, and touch has no equivalent for a
+  // couple of keyboard-only actions like "hold W to fly free" while
+  // captured) that sharing one function would need its own branching per
+  // call site anyway. This reads the same tangled Game state as
+  // keyboardHint() (sling/cruising/lsSeq/phase/navmap/ship/assistOn), so per
+  // the task brief it stays inline rather than moving to a pure hints.ts.
+  private touchHint(): string | null {
+    if (this.sling.kind === "captured") {
+      if (this.capturedAtTarget() && !this.input.isActive("slingHold")) {
+        return "you've arrived — tap LAND · WARP to jump away";
+      }
+      return this.input.isActive("slingHold")
+        ? "release the big button to fling · or tap WARP to jump now"
+        : "hold the big button to swing · tap WARP to jump away";
+    }
+    if (this.cruising) return "tap the big button to drop out early";
+    if (this.lsSeq.phase === "charge" || this.lsSeq.phase === "burst") return null;
+    switch (this.phase.kind) {
+      case "landed":
+        return this.navmap.targetName
+          ? `WARP to fly to ${this.navmap.targetName} · hold the big button to launch`
+          : "WARP to fly where you point · hold the big button to launch";
+      case "launching":
+      case "space": {
+        const brake =
+          this.ship.velocity.length() > 50 && this.ship.throttle <= 0 ? " · tap BRAKE to slow down" : "";
+        return this.navmap.targetName
+          ? `WARP to ${this.navmap.targetName}${brake}`
+          : `WARP where you point · MAP for a guided trip${brake}`;
+      }
+      case "descending":
+        return this.assistOn ? null : "tap LAND · BRAKE to slow your descent";
+      case "onFoot":
+        return "drag to walk · JUMP to hop · tap BOARD to get in";
     }
   }
 

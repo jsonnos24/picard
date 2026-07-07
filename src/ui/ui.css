@@ -55,8 +55,18 @@
   50% { opacity: 0.55; }
 }
 
-/* Touch players get their instructions from the context button instead. */
-@media (pointer: coarse) { #hud .row.hint { display: none !important; } }
+/* Touch players get the same phase-aware hint (Game.touchHint(), button
+   wording instead of keyboard wording) but there's no room for it inline in
+   the HUD block on a phone — float it as a compact single-line pill above
+   the HUD instead of hiding it outright. */
+@media (pointer: coarse) {
+  #hud .row.hint {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + 6px);
+    font-size: 0.82em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+    padding: 6px 10px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+}
 
 /* ---- Mute button ---- */
 #mutebtn {
@@ -248,6 +258,62 @@
 }
 @media (pointer: coarse) { #contextchip { display: none !important; } }
 
+/* ---- First-run onboarding overlay ----
+   Non-interactive by design (pointer-events: none) except the GOT IT
+   button, so it can be visible above the whole UI without ever gating a
+   real touch/click/key from reaching the game underneath. */
+#onboarding {
+  position: absolute; inset: 0; pointer-events: none; z-index: 60;
+  color: var(--accent); font-family: var(--font-display);
+  opacity: 1; visibility: visible;
+  transition: opacity var(--t-med) var(--ease-out), visibility 0s linear 0s;
+}
+#onboarding.hidden {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease-out), visibility 0s linear var(--t-fast);
+}
+#onboarding .onb-panel {
+  position: absolute; max-width: min(46vw, 260px);
+  background: var(--ink-panel); border: 1.5px solid var(--accent-border); border-radius: var(--radius);
+  padding: 12px 16px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; font-size: 13px;
+}
+#onboarding .onb-left {
+  left: calc(24px + env(safe-area-inset-left)); top: 44%; transform: translateY(-50%);
+  text-align: center;
+}
+#onboarding .onb-ring {
+  width: 64px; height: 64px; margin: 0 auto 10px; border: 2px dashed var(--accent-dim); border-radius: 50%;
+}
+#onboarding .onb-right {
+  right: calc(24px + env(safe-area-inset-right)); bottom: calc(160px + env(safe-area-inset-bottom));
+  text-align: right;
+}
+#onboarding .onb-sub { margin: 6px 0 0; font-size: 11px; font-weight: 600; color: var(--accent-dim); }
+#onboarding .onb-fine {
+  left: 50%; top: 38%; transform: translate(-50%, -50%);
+  max-width: min(90vw, 520px); text-align: center;
+}
+#onboarding .onb-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+#onboarding .onb-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--accent-border); border-radius: 999px; padding: 6px 12px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+}
+#onboarding .onb-chip b {
+  background: var(--accent); color: var(--ink); border-radius: 4px; padding: 1px 6px; font-size: 11px;
+}
+#onboarding .onb-gotit {
+  position: absolute; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  min-width: 120px; min-height: 48px; pointer-events: auto;
+  font: 800 13px/1 var(--font-display); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink); background: var(--accent); border: 1.5px solid var(--accent); border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+#onboarding .onb-gotit:hover { background: var(--accent-dim); }
+#onboarding .onb-gotit:active { transform: translateX(-50%) scale(0.96); }
+
 @media (prefers-reduced-motion: reduce) {
   #hud .row.warn:not(.hidden),
   #ui .marker.pop {
@@ -265,6 +331,9 @@
   #navmap .close,
   #navmap .setcourse,
   #contextchip,
+  #onboarding,
+  #onboarding.hidden,
+  #onboarding .onb-gotit,
   #touchcontrols .stickbase,
   #touchcontrols .sticknub {
     transition-duration: 1ms !important;
