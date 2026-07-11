@@ -71,6 +71,7 @@ import { createSpeedDust } from "../render/scene/speedDust";
 import { createExhaust, NOZZLE_LOCAL_Y } from "../render/scene/exhaust";
 import { createContactShadow } from "../render/scene/contactShadow";
 import { createRocks, Rocks } from "../render/scene/rocks";
+import { createEarthAtmosphere, EarthAtmosphere } from "../render/scene/earthAtmosphere";
 import { ExhaustState, initExhaustState, exhaustStep, takeEmits } from "./feel/exhaust";
 import { skimIntensity } from "./feel/skim";
 import { projectMarker } from "./markers";
@@ -132,6 +133,7 @@ export class Game {
   private lsFree = false; // pending or active point-and-fly jump (no target)
   private lsFreeDir: Vec3 | null = null; // persistent nose direction of a free cruise
   private cruising = false;
+  private lsVoid = false; // free-cruising with no body on the flight ray (warping into the void)
   private lsBraking = false; // cancelled mid-cruise: bleeding speed back down
   private lsFovScale = 1;
   private sling: SlingState = idleSling();
@@ -153,6 +155,7 @@ export class Game {
   private exhaust!: ReturnType<typeof createExhaust>;
   private exhaustState: ExhaustState = initExhaustState(0x5eed01);
   private rocks!: Rocks;
+  private earthAtmosphere!: EarthAtmosphere;
   private padShadow!: ReturnType<typeof createContactShadow>;
   private astronautShadow!: ReturnType<typeof createContactShadow>;
   // The ship's primary body, cached once per sim step (item 3): selectPrimaryBody
@@ -248,6 +251,7 @@ export class Game {
     this.exhaust = createExhaust(this.shipGroup, this.renderer.scene);
     this.padShadow = createContactShadow(this.renderer.scene);
     this.rocks = createRocks(this.renderer.scene);
+    this.earthAtmosphere = createEarthAtmosphere(this.renderer.scene);
     this.astronautShadow = createContactShadow(this.renderer.scene, 0.45);
     // Pointer Lock free-look is a mouse-only affordance; touch steers by drag.
     if (window.matchMedia("(pointer: fine)").matches) {
@@ -396,8 +400,12 @@ export class Game {
       this.ship.throttle = 0;
       this.setOrient(r.vel.normalize());
       this.angular = zeroAngular();
+      // Warn-only void guard: flag when the ray reaches no body so the HUD can
+      // tell the player to steer or drop out (the cruise itself flies on).
+      this.lsVoid = r.ahead === null;
       if (r.done) {
         this.cruising = false;
+        this.lsVoid = false;
         this.lsFree = false;
         this.lsFreeDir = null;
         this.lsSeq = endCruise(this.lsSeq);
@@ -1027,6 +1035,23 @@ export class Game {
       this.astronautShadow.update(shipVec, shipVec, shipUp, Infinity, false);
     }
 
+    // Earth-only sky/clouds/birds. Uses focusPrimary so it's correct on foot
+    // too; the module hard-gates itself off when the primary isn't Earth.
+    const atmoPb = focusPrimary;
+    const atmoSurf = toRender(
+      this.fo,
+      atmoPb.body.position.add(atmoPb.up.scale(atmoPb.body.radius)),
+    );
+    this.earthAtmosphere.update({
+      isEarth: atmoPb.body.name === "Earth",
+      altitude: atmoPb.altitude,
+      surfacePoint: new THREE.Vector3(atmoSurf.x, atmoSurf.y, atmoSurf.z),
+      up: new THREE.Vector3(atmoPb.up.x, atmoPb.up.y, atmoPb.up.z),
+      cameraPos: this.renderer.camera.position,
+      tSec: t / 1000,
+      dt,
+    });
+
     this.updateHud();
     this.updateMarker();
     this.renderer.render();
@@ -1075,9 +1100,13 @@ export class Game {
         ? "☀ SOLAR HEAT — PULL AWAY"
         : vUp < WARN_VSPEED && pb.altitude < WARN_ALTITUDE
           ? "HIGH DESCENT RATE"
-          : this.missionElapsed < this.noticeUntil
-            ? this.notice
-            : null,
+          : this.cruising && this.lsVoid
+            ? this.coarsePointer
+              ? "NOTHING AHEAD — TAP TO DROP OUT"
+              : "NOTHING AHEAD — J TO DROP OUT"
+            : this.missionElapsed < this.noticeUntil
+              ? this.notice
+              : null,
       lightspeedEta,
       sling,
       missionSeconds: this.missionElapsed,
@@ -1267,6 +1296,7 @@ export class Game {
     if (tap === "dropout") {
       // Cancel: wind the cinematics down and bleed speed off.
       this.cruising = false;
+      this.lsVoid = false;
       this.lsTargetName = null;
       this.lsFree = false;
       this.lsFreeDir = null;

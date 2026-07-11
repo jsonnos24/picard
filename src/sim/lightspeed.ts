@@ -175,6 +175,7 @@ export interface FreeStepResult {
   dir: Vec3; // persistent nose direction (steering bends it)
   done: boolean; // flew into a gravity bubble — hand off to capture
   bodyName: string | null; // whose bubble ended the cruise
+  ahead: string | null; // nearest bubble the CURRENT ray will reach, or null if the ray misses every body (warping into the void)
 }
 
 // Point-and-fly: no destination, just the nose. Scan the flight ray for the
@@ -243,10 +244,18 @@ export function freeCruiseStep(
       dir: d,
       done: true,
       bodyName: bestBody.name,
+      ahead: bestBody.name,
     };
   }
 
-  return { pos: pos.add(d.scale(speed * dt)), vel: d.scale(speed), dir: d, done: false, bodyName: null };
+  return {
+    pos: pos.add(d.scale(speed * dt)),
+    vel: d.scale(speed),
+    dir: d,
+    done: false,
+    bodyName: null,
+    ahead: bestBody ? bestBody.name : null,
+  };
 }
 
 // Cancelling mid-cruise: bleed speed down to vDrift so the player is left

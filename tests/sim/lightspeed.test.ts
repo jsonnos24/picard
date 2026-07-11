@@ -358,6 +358,19 @@ describe("freeCruiseStep — point-and-fly, no destination", () => {
     expect(r.dir.dot(dir)).toBeLessThan(1 - 1e-6);
     expect(r.dir.length()).toBeCloseTo(1, 6);
   });
+
+  it("reports the body ahead when one is on the ray, null when the void is ahead", () => {
+    const mars = findBody(bodies, "Mars");
+    const start = mars.position.add(new Vec3(500_000, 0, 0));
+    // Nose pointed straight at Mars: `ahead` names the body long before arrival.
+    const toward = freeCruiseStep(start, new Vec3(-1, 0, 0).scale(1), new Vec3(-1, 0, 0), { x: 0, y: 0 }, dt, bodies);
+    expect(toward.done).toBe(false);
+    expect(toward.ahead).toBe("Mars");
+    // Same spot, nose aimed wide of every bubble: nothing ahead — the void case.
+    const away = freeCruiseStep(new Vec3(0, 1e9, 0), new Vec3(0, 1, 0), new Vec3(0, 1, 0), { x: 0, y: 0 }, dt, bodies);
+    expect(away.done).toBe(false);
+    expect(away.ahead).toBeNull();
+  });
 });
 
 describe("cruising out from inside an obstacle bubble", () => {
